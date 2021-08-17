@@ -1,0 +1,69 @@
+.define nCMD_GPIO 27        ; nCommand GPIO input
+.define nSTRB_GPIO 28       ; nStrobe GPIO input
+.define nRW_GPIO 9          ; nRead/write GPIO input
+
+; Program to manage command
+.program pico_profile_cmd
+.side_set 1
+
+.wrap_target
+next_cmd:
+    wait 0 gpio nCMD_GPIO   side 1      ; Wait for the CMD to be low
+    set pins, 0x1           side 0      ; Put 1 to the bus
+    wait 1 gpio nCMD_GPIO   side 0      ; Wait for the CMD to be high
+    in pins, 8              side 0      ; Read response
+    pull                    side 0      ; Wait for MCU to answer
+    mov x, osr              side 0      ; 
+    jmp !x next_cmd         side 0      ; MCU rejected command
+    set x, 6                side 1      ; Raise BSY
+get_cmd_bytes:
+    wait 0 gpio nSTRB_GPIO  side 1      ; Wait for cmd to be strobed
+    in pins, 8              side 1      ; Get command bytes
+    jmp x-- get_cmd_bytes   side 1      ; Until we read 6 bytes
+    wait 0 gpio nCMD_GPIO   side 1      ; Wait for the CMD to be low
+    pull                    side 1      ; Get data from MCU (command answer)
+    out pins, 8             side 0      ; Set answer to bus and lower BSY
+    wait 1 gpio nCMD_GPIO   side 0      ; Wait for the CMD to be high
+    in pins, 8              side 0      ; Read response (should be 0x55)
+    pull                    side 0      ; Wait for MCU to be ready
+    mov x, osr              side 1      ; Raise BSY (ready for data)
+    jmp !x next_cmd         side 1      ; MCU done command (if 0)
+    wait 1 gpio nCMD_GPIO   side 1      ; Wait for the CMD to be low
+    pull                    side 1      ; Get MCU command response
+    out pins, 8             side 0      ; Set answer to bus and lower BSY
+    wait 1 gpio nCMD_GPIO   side 0      ; Wait for the CMD to be high
+    in pins, 8              side 0      ; Read response (should be 0x55)
+    pull                    side 0      ; Wait for MCU to be ready
+.wrap
+
+; Program to read data
+.program pico_profile_data
+
+.wrap_target
+wait_data:
+    wait 0 gpio nSTRB_GPIO              ; Waits for strobe to be low
+    jmp pin write_data                  ; Jumps depending on R/W
+read_data:
+    ; Apple read something on bus
+    out pins, 8                         ; Sets output to what it's in OSR
+    jmp wait_data
+write_data:
+    in pins, 8                          ; Put on bus what is in ISR
+.wrap
+
+
+% c-sdk {
+
+static inline void pico_profile_cmd_pio_init(PIO pio, uint sm, uint offset, uint out_base_pin) {
+    pio_sm_set_consecutive_pindirs(pio, sm, out_base_pin, 8, true);
+    for (uint i = out_base_pin; i < out_base_pin + 8; ++i)
+        pio_gpio_init(pio, i);
+    pio_sm_config c = pico_profile_cmd_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, out_base_pin, 8);
+    sm_config_set_out_shift(&c, true, true, 8);
+    pio_sm_init(pio, sm, offset, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+
+%}

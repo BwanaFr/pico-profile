@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name eec)(type Legacy)(uri "C:/Users/mdonze/cernbox/Documents/Kicad/IC_Texas Instruments_SN74LVC1G240/eec.lib")(options "")(descr ""))
+  (lib (name pico-profile-lib)(type Legacy)(uri ${KIPRJMOD}/pico-profile-lib.lib)(options "")(descr ""))
+)
