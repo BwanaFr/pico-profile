@@ -71,12 +71,12 @@ $EndComp
 $Comp
 L Device:C C3
 U 1 1 60ED2254
-P 8450 1000
-F 0 "C3" H 8565 1046 50  0000 L CNN
-F 1 "10uF" H 8550 900 50  0000 L CNN
-F 2 "Capacitor_SMD:C_0603_1608Metric" H 8488 850 50  0001 C CNN
-F 3 "~" H 8450 1000 50  0001 C CNN
-	1    8450 1000
+P 8000 1000
+F 0 "C3" H 8115 1046 50  0000 L CNN
+F 1 "10uF" H 8100 900 50  0000 L CNN
+F 2 "Capacitor_SMD:C_0603_1608Metric" H 8038 850 50  0001 C CNN
+F 3 "~" H 8000 1000 50  0001 C CNN
+	1    8000 1000
 	1    0    0    -1  
 $EndComp
 $Comp
@@ -479,9 +479,9 @@ PR~W
 Wire Wire Line
 	9450 800  9450 750 
 Wire Wire Line
-	8450 1150 8450 1250
+	8000 1150 8000 1250
 Wire Wire Line
-	8450 1250 8950 1250
+	8000 1250 8550 1250
 Connection ~ 8950 1250
 Wire Wire Line
 	8950 1250 8950 1300
@@ -1341,12 +1341,12 @@ Wire Wire Line
 $Comp
 L Device:C C2
 U 1 1 61BB4F16
-P 8000 1000
-F 0 "C2" H 8115 1046 50  0000 L CNN
-F 1 "100nF" H 8100 900 50  0000 L CNN
-F 2 "Capacitor_SMD:C_0603_1608Metric" H 8038 850 50  0001 C CNN
-F 3 "~" H 8000 1000 50  0001 C CNN
-	1    8000 1000
+P 8550 1000
+F 0 "C2" H 8665 1046 50  0000 L CNN
+F 1 "100nF" H 8650 900 50  0000 L CNN
+F 2 "Capacitor_SMD:C_0603_1608Metric" H 8588 850 50  0001 C CNN
+F 3 "~" H 8550 1000 50  0001 C CNN
+	1    8550 1000
 	1    0    0    -1  
 $EndComp
 $Comp
@@ -1362,23 +1362,11 @@ F 3 "~" H 7600 1000 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	7600 1150 7600 1250
-Wire Wire Line
-	7600 1250 8000 1250
-Connection ~ 8450 1250
-Wire Wire Line
-	8000 1150 8000 1250
 Connection ~ 8000 1250
-Wire Wire Line
-	8000 1250 8450 1250
 Wire Wire Line
 	7600 850  7600 800 
 Wire Wire Line
 	7600 800  8000 800 
-Wire Wire Line
-	8000 850  8000 800 
-Connection ~ 8000 800 
-Wire Wire Line
-	8000 800  8450 800 
 Wire Wire Line
 	8950 850  8950 800 
 Wire Wire Line
@@ -1467,7 +1455,7 @@ Connection ~ 3750 6550
 Wire Wire Line
 	2750 6550 3450 6550
 Wire Wire Line
-	8450 800  8450 850 
+	8000 800  8000 850 
 $Comp
 L power:+3V3 #PWR017
 U 1 1 60EEDF4C
@@ -1791,6 +1779,50 @@ F 3 "" H 2650 5100 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	2550 5100 2650 5100
+Wire Wire Line
+	7600 1250 8000 1250
+Connection ~ 8000 800 
+Wire Wire Line
+	8550 1150 8550 1250
+Connection ~ 8550 1250
+Wire Wire Line
+	8550 1250 8950 1250
+Wire Wire Line
+	8950 800  8550 800 
+Wire Wire Line
+	8550 800  8550 850 
+Connection ~ 8950 800 
+$Comp
+L Connector:Screw_Terminal_01x02 J5
+U 1 1 61277E40
+P 7050 1050
+F 0 "J5" H 6968 1267 50  0000 C CNN
+F 1 "Screw_Terminal_01x02" H 6968 1176 50  0000 C CNN
+F 2 "Connector_Phoenix_MSTB:PhoenixContact_MSTBA_2,5_2-G-5,08_1x02_P5.08mm_Horizontal" H 7050 1050 50  0001 C CNN
+F 3 "~" H 7050 1050 50  0001 C CNN
+	1    7050 1050
+	-1   0    0    1   
+$EndComp
+Wire Wire Line
+	7250 950  7250 800 
+Wire Wire Line
+	7250 1050 7250 1250
+Wire Wire Line
+	7250 1250 7600 1250
+Connection ~ 7600 1250
+$Comp
+L Diode:MBR1020VL D1
+U 1 1 614028B7
+P 7400 800
+F 0 "D1" H 7400 584 50  0000 C CNN
+F 1 "MBR1020VL" H 7400 675 50  0000 C CNN
+F 2 "Diode_SMD:D_SOD-123F" H 7400 625 50  0001 C CNN
+F 3 "https://www.onsemi.com/pub/Collateral/MBR1020VL-D.PDF" H 7400 800 50  0001 C CNN
+	1    7400 800 
+	-1   0    0    1   
+$EndComp
+Wire Wire Line
+	7550 800  7600 800 
 Wire Bus Line
 	3450 1350 3450 2350
 Wire Bus Line
