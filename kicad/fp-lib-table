@@ -1,4 +1,5 @@
 (fp_lib_table
   (lib (name eec)(type KiCad)(uri "${KIPRJMOD}/IC_Texas Instruments_SN74LVC1G240/eec.pretty")(options "")(descr ""))
   (lib (name MCU_RaspberryPi_and_Boards)(type KiCad)(uri "${KIPRJMOD}/RP-Pico Libraries/MCU_RaspberryPi_and_Boards.pretty")(options "")(descr ""))
+  (lib (name logos)(type KiCad)(uri ${KIPRJMOD}/logos.pretty)(options "")(descr ""))
 )
