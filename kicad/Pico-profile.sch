@@ -914,7 +914,7 @@ Wire Wire Line
 	8950 6250 9050 6250
 Text Label 9050 6250 0    50   ~ 0
 RUN
-Text Label 8100 6250 0    50   ~ 0
+Text Label 7500 6250 0    50   ~ 0
 ~PRES
 Text Label 9150 4800 0    50   ~ 0
 CMD
@@ -1705,7 +1705,7 @@ $EndComp
 Wire Wire Line
 	9650 6100 9950 6100
 Wire Wire Line
-	8100 6250 8400 6250
+	7500 6250 8050 6250
 $Comp
 L pico-profile-lib:74LVC1G04 U6
 U 1 1 6134DF7E
@@ -1823,6 +1823,33 @@ F 3 "https://www.onsemi.com/pub/Collateral/MBR1020VL-D.PDF" H 7400 800 50  0001 
 $EndComp
 Wire Wire Line
 	7550 800  7600 800 
+$Comp
+L Device:R R19
+U 1 1 6129DB38
+P 8050 6100
+F 0 "R19" V 7950 6100 50  0000 C CNN
+F 1 "10k" V 8050 6100 50  0000 C CNN
+F 2 "Resistor_SMD:R_0603_1608Metric" V 7980 6100 50  0001 C CNN
+F 3 "~" H 8050 6100 50  0001 C CNN
+	1    8050 6100
+	-1   0    0    1   
+$EndComp
+Connection ~ 8050 6250
+Wire Wire Line
+	8050 6250 8400 6250
+$Comp
+L power:+5VL #PWR0103
+U 1 1 612B3D43
+P 8050 5900
+F 0 "#PWR0103" H 8050 5750 50  0001 C CNN
+F 1 "+5VL" H 8065 6073 50  0000 C CNN
+F 2 "" H 8050 5900 50  0001 C CNN
+F 3 "" H 8050 5900 50  0001 C CNN
+	1    8050 5900
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	8050 5950 8050 5900
 Wire Bus Line
 	3450 1350 3450 2350
 Wire Bus Line
