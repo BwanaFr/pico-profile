@@ -1,4 +1,5 @@
 (sym_lib_table
-  (lib (name eec)(type Legacy)(uri "C:/Users/mdonze/cernbox/Documents/Kicad/IC_Texas Instruments_SN74LVC1G240/eec.lib")(options "")(descr ""))
+  (lib (name eec)(type Legacy)(uri "${KIPRJMOD}/IC_Texas Instruments_SN74LVC1G240/eec.lib")(options "")(descr ""))
   (lib (name pico-profile-lib)(type Legacy)(uri ${KIPRJMOD}/pico-profile-lib.lib)(options "")(descr ""))
+  (lib (name MCU_RaspberryPi_and_Boards)(type Legacy)(uri "C:/Users/mdonze/cernbox/Documents/Kicad/RP-Pico Libraries/MCU_RaspberryPi_and_Boards.lib")(options "")(descr ""))
 )
