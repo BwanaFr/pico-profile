@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.13)
 # Pull in Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(FatFS_SPI_example C CXX ASM)
+project(pico-profile C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
@@ -36,7 +36,6 @@ pico_enable_stdio_usb(pico-profile 1)
 target_link_libraries(pico-profile
     FatFs_SPI
     hardware_clocks
-    hardware_adc
     hardware_pio
 )
 
