@@ -72,12 +72,12 @@ uint8_t readData(bool useStrobe)
     digitalWrite(PRW, 1);
     //Set port direction to read
     setPortDir(false);
-    uint8_t value = readBus();
     if(useStrobe){
         digitalWrite(PSTRB, false);
-        delayMicroseconds(1);
+        //delayMicroseconds();
         digitalWrite(PSTRB, true);
     }
+    uint8_t value = readBus();
     return value;
 }
 
@@ -89,7 +89,7 @@ void writeData(uint8_t data, bool useStrobe)
     digitalWrite(PRW, 0);
     if(useStrobe){
         digitalWrite(PSTRB, false);
-        delayMicroseconds(1);
+        //delayMicroseconds(1);
         digitalWrite(PSTRB, true);
     }
 }

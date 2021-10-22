@@ -4,28 +4,59 @@
 void setup() {
   Serial.begin(115200);
   configureIO();
+  digitalWrite(RESET, false);
+  _delay_ms(100);
+  digitalWrite(RESET, true);
 }
 
-uint8_t i=0;
+uint8_t i = 0;
+
+/**
+ * Send a read request to profile
+ **/
+void performRead(){
+  //Lower CMD
+  digitalWrite(PCMD, false);
+  Serial.println("CMD low, wait for busy");
+  while(digitalRead(PBSY)){}
+  Serial.print("Busy low, reading data : 0x");
+  uint8_t data = readData();
+  Serial.println(data, HEX);
+  Serial.println("Answering 0x55");
+  if(i == 0){
+    writeData(0x55, false);
+  }else{
+    writeData(0x22, false);
+  }
+  //Put cmd high
+  digitalWrite(PCMD, true);
+  Serial.println("Waiting for busy high");
+  while(!digitalRead(PBSY)){}
+  Serial.println("Busy lowered, writing command bytes");
+  _delay_us(200);
+  for(uint8_t i=0;i<6;++i){
+    writeData(i);
+    _delay_us(16);
+  }
+  digitalWrite(PCMD, false);
+  Serial.println("Waiting for BUSY to be low");
+  while(digitalRead(PBSY)){}
+  Serial.print("Busy low, answer : 0x");
+  data = readData(false);
+  Serial.println(data, HEX);
+  Serial.println("Answering 0x55");
+  writeData(0x55, false);
+  //Put cmd high
+  digitalWrite(PCMD, true);
+  Serial.println("Waiting for BUSY to be high");
+  while(!digitalRead(PBSY)){}
+  Serial.println("Read done!");
+}
+
 
 void loop() {
-  writeData(++i, true);
-  Serial.print('.');
-  _delay_ms(100);
-  //digitalWrite(LED_BUILTIN, digitalRead(PBSY));
-  /*uint8_t data =  readData(true);
-  Serial.println(data);
-  _delay_ms(500);
-  writeData(data+1, true);
-  _delay_ms(50);
-  */
-  /*digitalWrite(PRW, 0);
-  Serial.print(" 0:");
-  Serial.println(readData());
-  _delay_ms(500);*/
-  /*digitalWrite(PRW, 0);
-  Serial.print(" 1:");
-  Serial.println(readData());
-  _delay_ms(50);*/
- 
+  Serial.println("Hit a key to start reading");
+  while(Serial.available() == 0){}
+  while(Serial.available() != 0){Serial.read();}
+  performRead();
 }

@@ -3,6 +3,8 @@
 
 #include "pico-profile.pio.h"
 #include "io_functions.h"
+#include "protocol.h"
+
 #include "ff.h"
 #include "sd_card.h"
 
@@ -76,10 +78,72 @@
 //     return ret;
 // }
 
-uint8_t gpioToByte(uint32_t value) {
-    return (value & 0x7F) | ((value >> 4) & 0x80);
+/**
+ * Utility to print command details to serial
+ */
+void printCommand(uint8_t *cmd){
+    uint32_t block = cmd[0] | (cmd[1] << 8) | (cmd[2] << 16);
+    switch (cmd[0])
+    {
+    case READ_CMD:
+        printf("Read block $%lx, retries:%u, spare threshold:%u\n", block, cmd[4], cmd[5]);
+        break;
+    case WRITE_CMD:
+        printf("Write block $%lx\n", block);
+        break;
+    case WRITE_VERIFY_CMD:
+        printf("Write & verify block $%lx, retries:%u, spare threshold:%u\n", block, cmd[4], cmd[5]);
+        break;
+    case WRITE_SPARE:
+        printf("Write & Force Sparing block $%lx\n", block);
+        break;
+    default:
+        printf("Unsupported command\n");
+        break;
+    }
+    
 }
 
+uint8_t gpioToByte(uint32_t value) {
+    return (value & 0x7F) | ((value >> 3) & 0x80);
+}
+
+void handleCommand(PIO cmdPIO, uint sm) {
+    uint8_t cmd[6];
+    printf("Waiting for command\n");
+    uint8_t q = gpioToByte(pio_sm_get_blocking(cmdPIO, sm));
+    if(q != 0x55){
+        //Error, Apple must reply with 0x55
+        printf("ERROR : Bad acknowledge read");
+        pio_sm_restart(cmdPIO, sm);
+        return;
+    }
+    //Accept command
+    pio_sm_put_blocking(cmdPIO, sm, 0x1);
+    for(int i=0;i<6;++i){
+        cmd[i] = gpioToByte(pio_sm_get_blocking(cmdPIO, sm));
+    }
+    //Accept command, answer 2
+    pio_sm_put_blocking(cmdPIO, sm, 0x2);
+    //Gets the 0x55 ack
+    q = gpioToByte(pio_sm_get_blocking(cmdPIO, sm));
+    if(q != 0x55){
+        //Error, Apple must reply with 0x55
+        printf("ERROR : Bad acknowledge read");
+        pio_sm_restart(cmdPIO, sm);
+        return;
+    }
+    if(cmd[0] == 0x0){
+        //Reset the state machine
+        pio_sm_put_blocking(cmdPIO, sm, 0x0);
+    }else{
+        //Continue with the state machine
+        pio_sm_put_blocking(cmdPIO, sm, 0x01);
+        q = gpioToByte(pio_sm_get_blocking(cmdPIO, sm));
+        pio_sm_put_blocking(cmdPIO, sm, 0x0);
+    }
+    printCommand(cmd);
+}
 
 int main() {
     stdio_init_all();
@@ -87,52 +151,20 @@ int main() {
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     printf("Pico-profile\n");
-    PIO pio = pio0;
+    /*PIO pio = pio0;
     uint sm = 0;
     uint pio_prog_offs = pio_add_program(pio, &pico_profile_data_program);
-    pico_profile_data_pio_init(pio, sm, pio_prog_offs);
+    pico_profile_data_pio_init(pio, sm, pio_prog_offs);*/
+
+    PIO cmdPIO = pio1;
+    uint cmdSM = 0;
+    uint pio_cmd_offs = pio_add_program(cmdPIO, &pico_profile_cmd_program);
+    pico_profile_cmd_pio_init(cmdPIO, cmdSM, pio_cmd_offs);
     
+    gpio_put(LED_PIN, false);
     while (true) {
         gpio_put(LED_PIN, !gpio_get(LED_PIN));
-        uint32_t data = pio_sm_get_blocking(pio, sm);
-        printf("Data : 0x%lx\n", gpioToByte(data));
-        /*gpio_put(LED_PIN, 0);
-        gpio_put(BSY, 0);
-        sleep_ms(500);
-        gpio_put(LED_PIN, 1);
-        gpio_put(BSY, 1);
-        sleep_ms(100);
-        while(gpio_get(STRB)){}
-        gpio_put(LED_PIN, 0);
-        while(!gpio_get(STRB)){}*/
-        //gpio_put(LED_PIN, gpio_get(CMD));
-        /*while(gpio_get(RW)){}
-        gpio_put(LED_PIN, 0);        
-        putToBus(++i);
-        printf("GPIO[%u] : ->", i);
-        while(!gpio_get(RW)){}
-        uint8_t rd = getBus();
-        printf("%u Diff : %d\n", rd, (int8_t)(i-rd));        
-        gpio_put(LED_PIN, 1);*/
+        handleCommand(cmdPIO, cmdSM);
     }
-    /*sd_init_driver();
-    sleep_ms(20000);
-    printf("Hello, world!\n");
-    sleep_ms(500);
-    printf("Mounting SD card\n");
-    run_mount();
-    run_getfree();
-    run_unmount();*/
-    
-    /*const uint LED_PIN = PICO_DEFAULT_LED_PIN;
-    gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
-    while (true) {
-        printf("Hello, world!\n");
-        gpio_put(LED_PIN, 1);
-        sleep_ms(250);
-        gpio_put(LED_PIN, 0);
-        sleep_ms(250);
-    }*/
     return 0;
 }

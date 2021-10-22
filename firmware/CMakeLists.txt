@@ -18,6 +18,7 @@ add_executable(pico-profile
     src/pico-profile.c 
     src/io_functions.h
     src/io_functions.c
+    src/protocol.h
 )
 
 # Generate pio header
