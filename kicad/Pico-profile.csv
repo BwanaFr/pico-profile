@@ -40,3 +40,4 @@ Reference, Value, Footprint, Datasheet
 "R1","0","Resistor_SMD:R_0603_1608Metric","~"
 "J5","Screw_Terminal_01x02","Connector_Phoenix_MSTB:PhoenixContact_MSTBA_2,5_2-G-5,08_1x02_P5.08mm_Horizontal","~"
 "D1","MBR1020VL","Diode_SMD:D_SOD-123F","https://www.onsemi.com/pub/Collateral/MBR1020VL-D.PDF"
+"R19","10k","Resistor_SMD:R_0603_1608Metric","~"

@@ -16,13 +16,15 @@ add_subdirectory(./FatFs_SPI build)
 # Add executable. Default name is the project name, version 0.1
 add_executable(pico-profile 
     src/pico-profile.c 
+    src/io_functions.h
+    src/io_functions.c
 )
 
 # Generate pio header
-pico_generate_pio_header(pico-profile  ${CMAKE_CURRENT_LIST_DIR}/src/pico-profile.pio)
+pico_generate_pio_header(pico-profile ${CMAKE_CURRENT_LIST_DIR}/src/pico-profile.pio)
 
 # Add the standard library to the build
-target_link_libraries(pico-profile pico_stdlib)
+target_link_libraries(pico-profile pico_stdlib hardware_pio)
 
 target_compile_options(pico-profile PUBLIC -Wall -Wextra -Wno-unused-function -Wno-unused-parameter)
 target_compile_definitions(pico-profile PUBLIC DEBUG N_SD_CARDS=1)
