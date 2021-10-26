@@ -7,5 +7,7 @@
 #define WRITE_VERIFY_CMD 2
 #define WRITE_SPARE 3
 
+//Profile spare table address
+#define SPARE_TABLE_ADDR 0xFFFFFF
 
 #endif

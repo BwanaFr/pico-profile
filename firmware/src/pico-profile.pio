@@ -1,5 +1,48 @@
 .define CMD_GPIO 27        ; Command GPIO input (1 -> Command active)
 .define STRB_GPIO 28       ; Strobe GPIO input (Strobe on falling edge)
+.define CMD_RCV_IRQ 0      ; IRQ to signal command received
+
+; State machine to do the command handshake
+.program pico_profile_cmd_hchk
+; Side pin is the busy
+.side_set 1
+
+wait 0 gpio CMD_GPIO    side 0      
+wait 1 gpio CMD_GPIO    side 0      ; Wait for the CMD to be raised
+out pins, 8             side 1      ; Put what prepared by the MCU to the bus
+wait 0 gpio CMD_GPIO    side 1      ; Wait for the CMD to be high
+in pins, 11             side 1      ; Read response
+set x, 0                side 1      ; Initialize x
+loop:
+jmp !x loop             side 1       ; Wait for X to be 0
+
+% c-sdk {
+
+static inline pio_sm_config pico_profile_cmd_hchk_pio_init(PIO pio, uint sm, uint offset) {
+    //Configure outputs direction
+    //0x1FF : GPIO0 to GPIO8 as output (others as input)
+    //0x147F01FF : Modify GPIO 0-8, 9, 16-22, 26, 28
+    pio_sm_set_pindirs_with_mask(pio, sm, 0x1FF, 0x147F03FF);
+    for(uint i=0; i<=9; ++i)
+        pio_gpio_init(pio, i);
+    for(uint i=16; i<=22; ++i)
+        pio_gpio_init(pio, i);    
+    pio_gpio_init(pio, 26);
+    pio_gpio_init(pio, 28);    
+    pio_sm_config c = pico_profile_cmd_hchk_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, 0, 8);               //8 outputs
+    sm_config_set_out_shift(&c, true, true, 8);     //Shift right, autopull of 8 bits
+    sm_config_set_sideset_pins(&c, 8);              //Busy pin (side-set) is GPIO8
+    sm_config_set_in_pins(&c, 16);                  //Input starting at GPIO16
+    sm_config_set_in_shift(&c, false, true, 11);    //Shift right, autopull of 11 bits (to take into account GPIO 26)
+
+    pio_sm_init(pio, sm, offset, &c);           //Initialize state machine
+    pio_sm_set_enabled(pio, sm, true);          //Enable state machine
+    return c;
+}
+
+%}
+
 
 ; Program to manage command
 .program pico_profile_cmd
@@ -60,7 +103,7 @@ write_data:
 
 % c-sdk {
 
-static inline void pico_profile_cmd_pio_init(PIO pio, uint sm, uint offset) {
+static inline pio_sm_config pico_profile_cmd_pio_init(PIO pio, uint sm, uint offset) {
     //Configure outputs direction
     //0x1FF : GPIO0 to GPIO8 as output (others as input)
     //0x147F01FF : Modify GPIO 0-8, 9, 16-22, 26, 28
@@ -81,6 +124,7 @@ static inline void pico_profile_cmd_pio_init(PIO pio, uint sm, uint offset) {
 
     pio_sm_init(pio, sm, offset, &c);           //Initialize state machine
     pio_sm_set_enabled(pio, sm, true);          //Enable state machine
+    return c;
 }
 
 static inline void pico_profile_data_pio_init(PIO pio, uint sm, uint offset) {

@@ -11,6 +11,21 @@ void setup() {
 
 uint8_t i = 0;
 
+void performCmdHandshake(){
+    //Lower CMD
+  digitalWrite(PCMD, false);
+  Serial.println("CMD low, wait for busy");
+  while(digitalRead(PBSY)){}
+  Serial.print("Busy low, reading data : 0x");
+  uint8_t data = readData();
+  Serial.println(data, HEX);
+  Serial.println("Answering 0x55");
+  writeData(0x55, false);
+  digitalWrite(PCMD, true);
+  Serial.println("Waiting for busy high");
+  while(!digitalRead(PBSY)){}
+}
+
 /**
  * Send a read request to profile
  **/
@@ -58,5 +73,5 @@ void loop() {
   Serial.println("Hit a key to start reading");
   while(Serial.available() == 0){}
   while(Serial.available() != 0){Serial.read();}
-  performRead();
+  performCmdHandshake();
 }
