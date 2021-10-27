@@ -43,10 +43,10 @@ typedef struct {
 } spi_t;
 
 // SPI DMA interrupts
-void spi_irq_handler(spi_t *this);
+void spi_irq_handler(spi_t *);
 
-bool spi_transfer(spi_t *this, const uint8_t *tx, uint8_t *rx, size_t length);
-bool my_spi_init(spi_t *this);
+bool spi_transfer(spi_t *, const uint8_t *, uint8_t *, size_t);
+bool my_spi_init(spi_t *);
 
 #define USE_LED 1
 #if USE_LED

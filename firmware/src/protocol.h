@@ -10,4 +10,17 @@
 //Profile spare table address
 #define SPARE_TABLE_ADDR 0xFFFFFF
 
+enum ProfileResponse {  
+    GET_COMMAND = 1,        //Get command
+    READ_BLOCK,             //Read data block
+    RCV_WRITE_DATA,         //Receive, write data block
+    RCV_WRITE_VERIFY_DATA,  //Receive, write/verify data block
+    DO_WRITE,               //Do actual write or write/verify on disk
+};
+
+enum ProfileState {
+    IDLE,                   //Profile is waiting for command
+    READ,                   //Profile is reading from disk
+    WRITE,                  //Profile is writing data to disk
+};
 #endif

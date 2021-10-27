@@ -4,7 +4,6 @@ cmake_minimum_required(VERSION 3.13)
 include(pico_sdk_import.cmake)
 
 project(pico-profile C CXX ASM)
-
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
@@ -15,9 +14,11 @@ add_subdirectory(./FatFs_SPI build)
 
 # Add executable. Default name is the project name, version 0.1
 add_executable(pico-profile 
-    src/pico-profile.c 
-    src/io_functions.h
-    src/io_functions.c
+    src/pico-profile.cpp 
+    src/io_functions.hxx
+    src/io_functions.cpp
+    src/DC42File.hxx
+    src/DC42File.cpp
     src/protocol.h
 )
 

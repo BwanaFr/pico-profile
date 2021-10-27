@@ -1,4 +1,4 @@
-#include "io_functions.h"
+#include "io_functions.hxx"
 
 void initializeGPIO()
 {

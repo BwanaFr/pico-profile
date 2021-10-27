@@ -1,99 +1,16 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
-
 #include "pico-profile.pio.h"
-#include "io_functions.h"
+#include "io_functions.hxx"
 #include "protocol.h"
-
-#include "ff.h"
-#include "sd_card.h"
+#include "DC42File.hxx"
+#include <cstring>
 
 //PIO for command state machine
-#define CMD_PIO pio1
+/*#define CMD_PIO pio1
 #define CMD_SM 0
 uint pio_cmd_offs = 0;
-pio_sm_config pio_cmd_cfg = {0,0,0,0};
-
-//FATFS for SD card data exchange
-FATFS fs;
-
-/**
- * Mount the SD card
- */
-static FRESULT run_mount() {
-    char *arg1 = "0:";
-    FATFS *p_fs = &fs;
-    return f_mount(p_fs, arg1, 1);
-}
-
-
-// static void run_unmount() {
-//     char *arg1 = "0:";
-//     FRESULT fr = f_unmount(arg1);
-//     if (FR_OK != fr) printf("f_mount error: %s (%d)\n", FRESULT_str(fr), fr);
-// }
-
-// static void run_mount() {
-//     char *arg1 = "0:";
-//     FATFS *p_fs = &fs;
-//     FRESULT fr = f_mount(p_fs, arg1, 1);
-//     if (FR_OK != fr) printf("f_mount error: %s (%d)\n", FRESULT_str(fr), fr);
-// }
-
-// static void run_getfree() {
-//     char *arg1 = "0:";
-//     DWORD fre_clust, fre_sect, tot_sect;
-//     /* Get volume information and free clusters of drive */
-//     FATFS *p_fs = &fs;
-//     FRESULT fr = f_getfree(arg1, &fre_clust, &p_fs);
-//     if (FR_OK != fr) {
-//         printf("f_getfree error: %s (%d)\n", FRESULT_str(fr), fr);
-//         return;
-//     }
-//     /* Get total sectors and free sectors */
-//     tot_sect = (p_fs->n_fatent - 2) * p_fs->csize;
-//     fre_sect = fre_clust * p_fs->csize;
-//     /* Print the free space (assuming 512 bytes/sector) */
-//     printf("%10lu KiB total drive space.\n%10lu KiB available.\n", tot_sect / 2,
-//            fre_sect / 2);
-// }
-
-// static void run_test_write(){
-//     FIL f;
-//     FRESULT fr;     /* FatFs return code */
-//     char line[10];
-//     UINT written;
-
-//     fr = f_open(&f, "message.txt", FA_READ);
-//     if(fr){
-//         return;
-//     }
-//     for(int i=0;i<20;++i){
-//         sprintf(line, "Line %d\n", (i+1));
-//         // f_write(f, strlen(line), )
-//     }
-// }
-
-// void putToBus(uint8_t data){     
-//     gpio_put(OD0, (data & 0x1) == 1);
-//     gpio_put(OD1, (((data>>1) & 0x1) == 1));
-//     gpio_put(OD2, (((data>>2) & 0x1) == 1));
-//     gpio_put(OD3, (((data>>3) & 0x1) == 1));
-//     gpio_put(OD4, (((data>>4) & 0x1) == 1));
-//     gpio_put(OD5, (((data>>5) & 0x1) == 1));
-//     gpio_put(OD6, (((data>>6) & 0x1) == 1));
-//     gpio_put(OD7, (((data>>7) & 0x1) == 1));
-// }
-
-// uint8_t getBus(){
-//     uint8_t ret = 0;
-//     uint32_t input = gpio_get_all();
-//     ret = (input >> 16) & 0x7F;
-//     if(((input >> 26) & 0x1) != 0x0){
-//         ret |= 0x80;
-//     }
-//     return ret;
-// }
+pio_sm_config pio_cmd_cfg = {0,0,0,0};*/
 
 /**
  * Utility to print command details to serial
@@ -131,7 +48,7 @@ uint8_t gpioToByte(uint32_t value) {
 /**
  * Handle commands sent by the Apple
  */
-void handleCommand() {
+/*void handleCommand() {
     uint8_t cmd[6];
     printf("Waiting for command\n");
     uint8_t q = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
@@ -172,23 +89,38 @@ static void isr() {
     printf(".\n");
     pio_interrupt_clear(CMD_PIO, 0);
 }
-
+*/
 int main() {
     stdio_init_all();
-    initializeGPIO();
+    /*initializeGPIO();
     gpio_init(LED_PIN);
-    gpio_set_dir(LED_PIN, GPIO_OUT);
+    gpio_set_dir(LED_PIN, GPIO_OUT);*/
+    DC42File file;
+    sleep_us(5000000);
     printf("Pico-profile\n");
+    file.open("lisaem-profile.dc42");
+    while (true) {
+        gpio_put(LED_PIN, !gpio_get(LED_PIN));        
+        char imgName[64];
+        imgName[0] = 0x0;
+        if(!file.readImageName(imgName)){
+            printf("DC42 image name (%d): %s\n", strlen(imgName), imgName);
+        }else{
+            printf("DC42 error : %s\n", file.getLastError());
+        }
+        sleep_us(10000000);   
+    }
+
     //Initialize the command state machine
     //pio_cmd_offs = pio_add_program(CMD_PIO, &pico_profile_cmd_program);
     //pio_cmd_cfg = pico_profile_cmd_pio_init(CMD_PIO, CMD_SM, pio_cmd_offs);
     //Cmd handshake
-    pio_cmd_offs = pio_add_program(CMD_PIO, &pico_profile_cmd_hchk_program);
-    pio_cmd_cfg = pico_profile_cmd_hchk_pio_init(CMD_PIO, CMD_SM, pio_cmd_offs);
+    //pio_cmd_offs = pio_add_program(CMD_PIO, &pico_profile_cmd_hchk_program);
+    //pio_cmd_cfg = pico_profile_cmd_hchk_pio_init(CMD_PIO, CMD_SM, pio_cmd_offs);
     /*irq_set_exclusive_handler(PIO1_IRQ_0, isr);
     irq_set_enabled(PIO1_IRQ_0, true);
     pio_set_irq0_source_enabled(CMD_PIO, pis_interrupt0, true);*/
-
+/*
     uint8_t i = 0;
     gpio_put(LED_PIN, false);
     while (true) {
@@ -200,5 +132,6 @@ int main() {
         printf("Command done");
         pio_sm_exec(CMD_PIO, CMD_SM, pio_encode_set(pio_x, 1));
     }
+    */
     return 0;
 }

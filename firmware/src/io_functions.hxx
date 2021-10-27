@@ -2,6 +2,8 @@
 #define IO_FUNCTIONS_H_
 
 #include "pico/stdlib.h"
+//LED pin
+#define LED_PIN 25
 
 //Output port
 #define OD0 0
