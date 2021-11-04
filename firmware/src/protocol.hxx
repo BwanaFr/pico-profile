@@ -1,0 +1,176 @@
+#ifndef PROTOCOL_H_
+#define PROTOCOL_H_
+
+#include "pico/stdlib.h"
+#include "pico-profile.pio.h"
+
+class DC42File;
+
+class Protocol {
+public:
+    Protocol(DC42File* file);
+    virtual ~Protocol();
+    Protocol& operator=(const Protocol& ) = delete;
+
+    /**
+     * Non-blocking function for handling protocol
+     */
+    void handleProtocol();
+
+    /**
+     * Push data to receive buffer
+     **/
+    void dataReceived();
+private:
+    /**
+     * Command byte sent by Apple
+     */
+    enum ProfileCommand {
+        READ = 0,               //!< Read block
+        WRITE,                  //!< Write block
+        WRITE_VERIFY,           //!< Write and verify block
+        WRITE_SPARE,            //!< Writea and force sparing
+    };
+
+    /**
+     *  Next action done by profile
+     **/
+    enum ProfileState {
+        GET_COMMAND = 1,        //!< Get command
+        READ_BLOCK,             //!< Read data block
+        RCV_WRITE_DATA,         //!< Receive, write data block
+        RCV_WRITE_VERIFY_DATA,  //!< Receive, write/verify data block
+        DO_WRITE,               //!< Do actual write or write/verify on disk
+    };
+
+    static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
+    static constexpr uint DATA_SM = 0;                      //!< Data state machine number
+    static constexpr uint CMD_SM = 1;                       //!< Command handshake state machine number
+    static constexpr uint APPLE_ACK = 0x55;                 //!< Apple acknowledge
+    static constexpr uint BUFFER_SIZE = 512+20+4;           //!< Recept/send buffer size (512 blocks, 20 tags, 4 status)
+    static constexpr uint CMD_LENGTH = 6;                   //!< Number of byte in command
+    //Status bits definition
+    static constexpr uint32_t STATUS_UNSUCCESS = 0x1;               //!< Status unsuccessful
+    static constexpr uint32_t STATUS_TIMEOUT = 0x4;                 //!< Status timeout
+    static constexpr uint32_t STATUS_CRC = 0x8;                     //!< CRC error
+    static constexpr uint32_t STATUS_SEEK = 0x10;                   //!< Seek error
+    static constexpr uint32_t STATUS_SPARE_UPDATED = 0x20;          //!< Host data no longer in RAM
+    static constexpr uint32_t STATUS_TOO_MUCH_DATA = 0x40;          //!< >532 bytes sent
+    static constexpr uint32_t STATUS_55_NOT_RECEIVED = 0x80;        //!< Profile received <> 55 to its last response
+    static constexpr uint32_t STATUS_SEEK_WRONG_TRACK = 0x200;      //!< Seek error, wrong track
+    static constexpr uint32_t STATUS_SPARING_OCCURED = 0x400;       //!< Sparing occured
+    static constexpr uint32_t STATUS_STATUS_SECTOR_READ = 0x800;    //!< Status sector reading error
+    static constexpr uint32_t STATUS_BAD_BLOCK_TABLE_FULL = 0x1000; //!< Bad block table full
+    static constexpr uint32_t STATUS_SPARE_TABLE_FULL = 0x4000;     //!< Spares table overflow
+    static constexpr uint32_t STATUS_SEEK_HEADER = 0x8000;          //!< Seek Error - cannot read header
+    static constexpr uint32_t STATUS_INVALID_BLOCK_NUM= 0x40000;    //!< Invalid block number
+    static constexpr uint32_t STATUS_PROFILE_RESET = 0x80000;       //!< Profile was reset
+
+
+    //GPIO definition
+    static constexpr uint32_t OD0_PIN = 0;          //DO GPIO (out)
+    static constexpr uint32_t OD1_PIN = 1;          //D1 GPIO (out)
+    static constexpr uint32_t OD2_PIN = 2;          //D2 GPIO (out)
+    static constexpr uint32_t OD3_PIN = 3;          //D3 GPIO (out)
+    static constexpr uint32_t OD4_PIN = 4;          //D4 GPIO (out)
+    static constexpr uint32_t OD5_PIN = 5;          //D5 GPIO (out)
+    static constexpr uint32_t OD6_PIN = 6;          //D6 GPIO (out)
+    static constexpr uint32_t OD7_PIN = 7;          //D7 GPIO (out)
+    static constexpr uint32_t BSY_PIN = 8;          //Busy GPIO (out)
+    static constexpr uint32_t RW_PIN = 9;           //R/W GPIO (in)
+    static constexpr uint32_t ID0_PIN = 16;         //D0 GPIO (in)
+    static constexpr uint32_t ID1_PIN = 17;         //D1 GPIO (in)
+    static constexpr uint32_t ID2_PIN = 18;         //D2 GPIO (in)
+    static constexpr uint32_t ID3_PIN = 19;         //D3 GPIO (in)
+    static constexpr uint32_t ID4_PIN = 20;         //D4 GPIO (in)
+    static constexpr uint32_t ID5_PIN = 21;         //D5 GPIO (in)
+    static constexpr uint32_t ID6_PIN = 22;         //D6 GPIO (in)
+    static constexpr uint32_t ID7_PIN = 26;         //D1 GPIO (in)
+    static constexpr uint32_t CMD_PIN = 27;         //CMD GPIO (in)
+    static constexpr uint32_t STRB_PIN = 28;         //Strobe GPIO (in)
+
+    /**
+     * Command message received
+     **/
+    typedef struct CommandMessage {
+        ProfileCommand command;     //!< Command
+        uint32_t blockNumber;       //!< Block number to read/write
+        uint8_t retryCount;         //!< Retry count
+        uint8_t sparesThreshold;    //!< Spare threshold
+        inline CommandMessage() : command(READ), blockNumber(0), retryCount(0), sparesThreshold(0){};
+    } CommandMessage;
+
+    DC42File* file_;                //!< Pointer to file
+    ProfileState state_;            //!< State machine
+
+    uint pioCmdHShkOffs_;           //!< Cmd handshake PIO state machine offset
+    pio_sm_config pioCmdHShkCfg_;   //!< Cmd handshake PIO configuration
+
+    uint pioDataOffs_;              //!< Data read/write PIO state machine offset
+    pio_sm_config pioDataCfg_;      //!< Data read/write PIO configuration
+
+    uint8_t buffer_[BUFFER_SIZE];   //!< Data reception buffer
+    uint32_t received_;             //!< Number of data received 
+    uint32_t toSend_;                 //!< Number of data to be sent
+    uint32_t status_;               //!< 4 bytes status
+    CommandMessage lastCmd_;        //!< Last received command
+
+    /**
+     * Change state machine
+     */
+    void switchState(ProfileState newState);
+
+    /**
+     * Unblock the handshake state machine
+     * This function will make the handshake lower the busy line
+     */
+    void handshakeDone();
+
+    /**
+     * Resets the data state machine
+     **/
+    void resetDataStateMachine();
+
+    /**
+     * Sets status bits to true
+     * @param bits Bits to be set
+     **/
+    void setStatus(uint32_t bits);
+
+    /**
+     * Resets status bits
+     * @param bits Bits to be cleared
+     **/
+    void resetStatus(uint32_t bits = 0xFFFFFFFF);
+
+    /**
+     * Handle received command
+     **/
+    void manageCommand(bool ackReceived);
+
+    /**
+     * Handle a read request
+     **/
+    void manageRead(bool ackReceived);
+
+    /**
+     * Reads data from file
+     * and prepare buffer
+     **/
+    void readToBuffer();
+
+    /**
+     * Debug function to print received command
+     **/
+    static void printCommand(const CommandMessage& msg);
+
+    /**
+     * Convert GPIO from state machines to data byte
+    */
+    static inline uint8_t gpioToByte(uint32_t value) {
+        return (value & 0x7F) | ((value >> 3) & 0x80);
+    }
+
+};
+
+#endif

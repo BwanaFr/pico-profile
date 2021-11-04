@@ -49,4 +49,8 @@ void initializeGPIO()
 
     gpio_init(STRB);
     gpio_set_dir(STRB, GPIO_IN);
+
+    //Pico LED
+    gpio_init(LED_PIN);
+    gpio_set_dir(LED_PIN, GPIO_OUT);
 }

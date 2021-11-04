@@ -3,33 +3,33 @@
 .define CMD_RCV_IRQ 0      ; IRQ to signal command received
 
 ; State machine to do the command handshake
-.program pico_profile_cmd_hchk
+.program pico_profile_cmd_hshk
 ; Side pin is the busy
 .side_set 1
 
 wait 0 gpio CMD_GPIO    side 0      
 wait 1 gpio CMD_GPIO    side 0      ; Wait for the CMD to be raised
-out pins, 8             side 1      ; Put what prepared by the MCU to the bus
+out pins, 8             side 0      ; Put what prepared by the MCU to the bus
 wait 0 gpio CMD_GPIO    side 1      ; Wait for the CMD to be high
 in pins, 11             side 1      ; Read response
 set x, 0                side 1      ; Initialize x
 loop:
-jmp !x loop             side 1       ; Wait for X to be 0
+jmp !x loop             side 1       ; Wait for X to be != 0
 
 % c-sdk {
 
-static inline pio_sm_config pico_profile_cmd_hchk_pio_init(PIO pio, uint sm, uint offset) {
+static inline pio_sm_config pico_profile_cmd_hshk_pio_init(PIO pio, uint sm, uint offset) {
     //Configure outputs direction
     //0x1FF : GPIO0 to GPIO8 as output (others as input)
-    //0x147F01FF : Modify GPIO 0-8, 9, 16-22, 26, 28
+    //0x147F03FF : Modify GPIO 0-8, 9, 16-22, 26, 28
     pio_sm_set_pindirs_with_mask(pio, sm, 0x1FF, 0x147F03FF);
-    for(uint i=0; i<=9; ++i)
+    /*for(uint i=0; i<=9; ++i)
         pio_gpio_init(pio, i);
     for(uint i=16; i<=22; ++i)
         pio_gpio_init(pio, i);    
     pio_gpio_init(pio, 26);
-    pio_gpio_init(pio, 28);    
-    pio_sm_config c = pico_profile_cmd_hchk_program_get_default_config(offset);
+    pio_gpio_init(pio, 28);    */
+    pio_sm_config c = pico_profile_cmd_hshk_program_get_default_config(offset);
     sm_config_set_out_pins(&c, 0, 8);               //8 outputs
     sm_config_set_out_shift(&c, true, true, 8);     //Shift right, autopull of 8 bits
     sm_config_set_sideset_pins(&c, 8);              //Busy pin (side-set) is GPIO8
@@ -42,47 +42,6 @@ static inline pio_sm_config pico_profile_cmd_hchk_pio_init(PIO pio, uint sm, uin
 }
 
 %}
-
-
-; Program to manage command
-.program pico_profile_cmd
-; Side pin is the busy
-.side_set 1
-
-.wrap_target
-next_cmd:
-    wait 0 gpio CMD_GPIO    side 0      
-    wait 1 gpio CMD_GPIO    side 0      ; Wait for the CMD to be low
-    set x, 1                side 0      ; Prepare response
-    mov osr, x              side 0      ;
-    out pins, 8             side 1      ; Put 1 to the bus
-    wait 0 gpio CMD_GPIO    side 1      ; Wait for the CMD to be high
-    in pins, 11             side 1      ; Read response
-    pull                    side 1      ; Wait for MCU to answer
-    mov x, osr              side 1      ; MCU should respond 1
-    jmp !x next_cmd         side 1      ; MCU rejected command
-    set x, 5                side 0      ; Raise BSY, prepare to read 6 command bbytes
-get_cmd_bytes:
-    wait 1 gpio STRB_GPIO   side 0      ; Wait for cmd to be strobed
-    wait 0 gpio STRB_GPIO   side 0      ; Wait for cmd to be strobed
-    in pins, 11             side 0      ; Get command bytes
-    jmp x-- get_cmd_bytes   side 0      ; Until we read 6 bytes
-    wait 1 gpio CMD_GPIO    side 0      ; Wait for the CMD to be low
-    pull                    side 0      ; Get data from MCU (command answer)
-    out pins, 8             side 0      ; Set answer to bus and lower BSY
-    wait 0 gpio CMD_GPIO    side 1      ; Wait for the CMD to be high
-    in pins, 11             side 1      ; Read response (should be 0x55)
-    pull                    side 1      ; Wait for MCU to be ready
-    mov x, osr              side 0      ; Raise BSY (ready for data)
-    jmp !x next_cmd         side 0      ; MCU done command (if 0)
-    ;Write instructions
-    wait 1 gpio CMD_GPIO    side 0      ; Wait for the CMD to be low
-    pull                    side 0      ; Get MCU command response
-    out pins, 8             side 1      ; Set answer to bus and lower BSY
-    wait 0 gpio CMD_GPIO    side 1      ; Wait for the CMD to be high
-    in pins, 8              side 1      ; Read response (should be 0x55)
-    pull                    side 1      ; Wait for MCU to be ready
-.wrap
 
 ; Program to read data
 .program pico_profile_data
@@ -100,45 +59,19 @@ write_data:
     in pins, 11                         ; Put on bus what is in ISR
 .wrap
 
-
 % c-sdk {
 
-static inline pio_sm_config pico_profile_cmd_pio_init(PIO pio, uint sm, uint offset) {
+static inline pio_sm_config pico_profile_data_pio_init(PIO pio, uint sm, uint offset) {
     //Configure outputs direction
-    //0x1FF : GPIO0 to GPIO8 as output (others as input)
-    //0x147F01FF : Modify GPIO 0-8, 9, 16-22, 26, 28
-    pio_sm_set_pindirs_with_mask(pio, sm, 0x1FF, 0x147F03FF);
+    //0xFF : GPIO0 to GPIO7 as output (others as input)
+    //0x147F03FF : Modify GPIO 0-7, 9, 16-22, 26, 28
+    pio_sm_set_pindirs_with_mask(pio, sm, 0xFF, 0x147F02FF);
     for(uint i=0; i<=9; ++i)
         pio_gpio_init(pio, i);
     for(uint i=16; i<=22; ++i)
         pio_gpio_init(pio, i);    
     pio_gpio_init(pio, 26);
-    pio_gpio_init(pio, 28);    
-    pio_sm_config c = pico_profile_cmd_program_get_default_config(offset);
-    sm_config_set_out_pins(&c, 0, 8);               //8 outputs
-    sm_config_set_out_shift(&c, true, false, 8);     //Shift right, autopull of 8 bits
-    //sm_config_set_set_pins(&c, 0, 1);               //Set the set pin to GPIO0
-    sm_config_set_sideset_pins(&c, 8);              //Busy pin (side-set) is GPIO8
-    sm_config_set_in_pins(&c, 16);                  //Input starting at GPIO16
-    sm_config_set_in_shift(&c, false, true, 11);    //Shift right, autopull of 11 bits (to take into account GPIO 26)
-
-    pio_sm_init(pio, sm, offset, &c);           //Initialize state machine
-    pio_sm_set_enabled(pio, sm, true);          //Enable state machine
-    return c;
-}
-
-static inline void pico_profile_data_pio_init(PIO pio, uint sm, uint offset) {
-    //Configure outputs direction
-    //0xFF : GPIO0 to GPIO7 as output (others as input)
-    //0x147F01FF : Modify GPIO 0-7, 9, 16-22, 26, 28
-    pio_sm_set_pindirs_with_mask(pio, sm, 0xFF, 0x147F02FF);
-    for(uint i=0; i<=7; ++i)
-        pio_gpio_init(pio, i);
-    pio_gpio_init(pio, 9);
-    for(uint i=16; i<=22; ++i)
-        pio_gpio_init(pio, i);    
-    pio_gpio_init(pio, 26);
-    pio_gpio_init(pio, 28);    
+    pio_gpio_init(pio, 28);
     pio_sm_config c = pico_profile_data_program_get_default_config(offset);
     sm_config_set_out_pins(&c, 0, 8);               //8 outputs
     sm_config_set_out_shift(&c, true, true, 8);     //Shift right, autopull of 8 bits
@@ -148,6 +81,7 @@ static inline void pico_profile_data_pio_init(PIO pio, uint sm, uint offset) {
 
     pio_sm_init(pio, sm, offset, &c);           //Initialize state machine
     pio_sm_set_enabled(pio, sm, true);          //Enable state machine
+    return c;
 }
 
 %}

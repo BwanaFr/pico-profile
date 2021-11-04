@@ -1,8 +1,10 @@
 add_library(FatFs_SPI INTERFACE)
+set(FATFS_LOC "ff14b/source")
+
 target_sources(FatFs_SPI INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/ff14a/source/ffsystem.c
-    ${CMAKE_CURRENT_LIST_DIR}/ff14a/source/ffunicode.c
-    ${CMAKE_CURRENT_LIST_DIR}/ff14a/source/ff.c
+    ${CMAKE_CURRENT_LIST_DIR}/${FATFS_LOC}/ffsystem.c
+    ${CMAKE_CURRENT_LIST_DIR}/${FATFS_LOC}/ffunicode.c
+    ${CMAKE_CURRENT_LIST_DIR}/${FATFS_LOC}/ff.c
     ${CMAKE_CURRENT_LIST_DIR}/sd_driver/sd_spi.c
     ${CMAKE_CURRENT_LIST_DIR}/sd_driver/hw_config.c
     ${CMAKE_CURRENT_LIST_DIR}/sd_driver/spi.c
@@ -15,7 +17,7 @@ target_sources(FatFs_SPI INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/src/rtc.c
 )
 target_include_directories(FatFs_SPI INTERFACE
-    ff14a/source
+    ${FATFS_LOC}
     sd_driver
     include
 )

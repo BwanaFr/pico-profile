@@ -8,14 +8,20 @@ extern "C"{
 }
 
 #define CALL_CHECK(call) \
-if ((call)) { \
-return true; \
+if ((!call)) { \
+return false; \
 }
 
 #define CALL_FS_CHECK(call) \
 if ((fatFsResult_ = call) != FR_OK) { \
-return true; \
+return false; \
 }
+
+#define CHECK_STATUS \
+if((internalError_ == NOT_INITIALIZED) || \
+    (internalError_ == FILE_OPEN_ERROR) || \
+    (internalError_ == WRONG_MAGIC)) \
+return false; 
 
 bool DC42File::initialized_ = false;
 FATFS DC42File::fatFs_;
@@ -26,74 +32,149 @@ DC42File::DC42File() :
 }
 
 DC42File::~DC42File() {
-    void closeFile();
+    closeFile();
 }
 
-void DC42File::open(const char* file) {
+bool DC42File::open(const char* file) {
     if(!initialized_) {
-        sd_init_driver();
+        CALL_CHECK(sd_init_driver());
         initialized_ = true;
         //Initialize the FatFs work area
         f_mount(&fatFs_, "", 1);
+    }else{
+        closeFile();
     }
+    //File is not yet initialized.
     if(internalError_ == NOT_INITIALIZED) {
         fatFsResult_ = f_open(&file_, file, FA_READ | FA_WRITE);
         if(fatFsResult_ != FR_OK){
             internalError_ = FILE_OPEN_ERROR;
-            return;
+            return false;
         }
         //Open ok. Get Magic number
         uint16_t magic = 0;        
-        if(read(MAGIC_NUMBER, &magic)){
+        if(!read(MAGIC_NUMBER, &magic)){
             internalError_ = FILE_OPEN_ERROR;
-            return;
+            return false;
         }
         if(magic != MAGIC_NUMBER_VAL){
             internalError_ = WRONG_MAGIC;
-            return;
+            return false;
         }
+        uint32_t dataSize = 0;
+        if(!read(DATA_BLOCK_SIZE, &dataSize)){
+            internalError_ = FILE_OPEN_ERROR;
+            return false;
+        }
+        tagOffset_ = dataSize + IMAGE_DATA;
+        //TODO: Maybe add more checks, like CRC and tag size check (must be 20 bytes)
         internalError_ = NO_ERRORS;
-    }
-}
-
-void DC42File::closeFile()
-{
-    if(internalError_ != FILE_OPEN_ERROR){
-        f_close(&file_);
-    }
-}
-
-bool DC42File::readBlock(uint32_t blockNumber, uint8_t* data) {
-    if(internalError_ == NO_ERRORS){
-
-    }
-    return false;
-}
-
-bool DC42File::readTag(uint32_t blockNumber, uint8_t* data) {
-    return false;
-}
-
-bool DC42File::readImageName(char* data) {
-    if(internalError_ == NO_ERRORS){
-        uint8_t len = 0;
-        CALL_CHECK(read(IMG_NAME_LEN, &len));
-        
-        if(len > 63){
-            len = 63;
-        }
-        CALL_FS_CHECK(f_lseek(&file_, IMG_NAME));
-        int toRead = len + 1;
-        if(!f_gets(data, toRead, &file_)){
-            return true;
-        }
-        return false;
     }
     return true;
 }
 
+void DC42File::closeFile()
+{
+    if(initialized_ && (internalError_ != FILE_OPEN_ERROR)
+        && (internalError_ != NOT_INITIALIZED)){
+        f_close(&file_);
+        internalError_ == NOT_INITIALIZED;
+    }
+}
+
+bool DC42File::readBlock(uint32_t blockNumber, uint8_t* data) {
+    CHECK_STATUS
+    uint32_t dataOffset = blockNumber * BYTES_PER_BLOCK + IMAGE_DATA;
+    if(dataOffset > tagOffset_){
+        internalError_ = BAD_BLOCK_NUMBER;
+    }    
+    CALL_FS_CHECK(f_lseek(&file_, dataOffset));
+    UINT read = 0;
+    CALL_FS_CHECK(f_read(&file_, data, BYTES_PER_BLOCK, &read));
+    return read == BYTES_PER_BLOCK;
+}
+
+bool DC42File::readTag(uint32_t blockNumber, uint8_t* data) {
+    CHECK_STATUS
+    uint32_t tagOffset = blockNumber * BYTES_PER_TAG + tagOffset_;
+    CALL_FS_CHECK(f_lseek(&file_, tagOffset));
+    UINT read = 0;
+    CALL_FS_CHECK(f_read(&file_, data, BYTES_PER_TAG, &read));
+    return read == BYTES_PER_TAG;
+}
+
+bool DC42File::writeBlock(uint32_t blockNumber, const uint8_t* data) {
+    CHECK_STATUS
+    uint32_t dataOffset = blockNumber * BYTES_PER_BLOCK + IMAGE_DATA;
+    if(dataOffset > tagOffset_){
+        internalError_ = BAD_BLOCK_NUMBER;
+    }    
+    CALL_FS_CHECK(f_lseek(&file_, dataOffset));
+    UINT wrote = 0;
+    CALL_FS_CHECK(f_write(&file_, data, BYTES_PER_BLOCK, &wrote));
+    return wrote == BYTES_PER_BLOCK;
+}
+
+bool DC42File::writeTag(uint32_t blockNumber, const uint8_t* data) {
+    CHECK_STATUS
+    uint32_t tagOffset = blockNumber * BYTES_PER_TAG + tagOffset_;
+    CALL_FS_CHECK(f_lseek(&file_, tagOffset));
+    UINT wrote = 0;
+    CALL_FS_CHECK(f_write(&file_, data, BYTES_PER_TAG, &wrote));
+    return wrote == BYTES_PER_TAG;   
+}
+
+bool DC42File::readImageName(char* data) {
+    CHECK_STATUS
+    uint8_t len = 0;
+    CALL_CHECK(read(IMG_NAME_LEN, &len));
+    
+    if(len > 63){
+        len = 63;
+    }
+    CALL_FS_CHECK(f_lseek(&file_, IMG_NAME));
+    int toRead = len + 1;
+    UINT read = 0;
+    CALL_FS_CHECK(f_read(&file_, data, toRead, &read));
+    return read == toRead;
+}
+
 bool DC42File::getDataBlockCount(uint32_t &count) {
-    return false;
+    CHECK_STATUS
+    uint32_t dataSize = 0;
+    CALL_CHECK(read(DATA_BLOCK_SIZE, &dataSize));
+    count = dataSize/BYTES_PER_BLOCK;
+    return true;
+}
+
+bool DC42File::computeDataChecksum(uint32_t &chksum) {
+    CHECK_STATUS
+    chksum = 0;
+    uint32_t blocks = 0;
+    CALL_CHECK(getDataBlockCount(blocks));
+    uint8_t data[BYTES_PER_BLOCK];
+    for(uint32_t blk=0;blk<blocks;++blk){
+        CALL_CHECK(readBlock(blk, data));
+        for(uint16_t i=0;i<BYTES_PER_BLOCK; i+=2){
+            chksum = ror32(chksum + ((uint32_t)((data[i]<<8) | data[i+1])));
+        }
+    }
+    return true;
+}
+
+bool DC42File::computeTagChecksum(uint32_t &chksum) {
+    CHECK_STATUS
+    chksum = 0;
+    uint32_t blocks = 0;
+    CALL_CHECK(getDataBlockCount(blocks));
+    uint8_t data[BYTES_PER_TAG];
+    for(uint32_t blk=1;blk<blocks;++blk){
+        CALL_CHECK(readTag(blk, data));
+        for(uint16_t i=0;i<BYTES_PER_TAG; i+=2){
+            chksum = ror32(chksum + ((uint32_t)((data[i]<<8) | data[i+1])));
+        }
+    }
+    return true;
 }
 
 const char* DC42File::getLastError() {
@@ -105,6 +186,8 @@ const char* DC42File::getLastError() {
                 return "Not initialized";
             case InternalError::WRONG_MAGIC:
                 return "Bad magic number";
+            case InternalError::BAD_BLOCK_NUMBER:
+                return "Bad block number";
             default:
                 return "Unknown error";
         }

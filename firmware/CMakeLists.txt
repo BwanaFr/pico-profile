@@ -19,7 +19,8 @@ add_executable(pico-profile
     src/io_functions.cpp
     src/DC42File.hxx
     src/DC42File.cpp
-    src/protocol.h
+    src/protocol.hxx
+    src/protocol.cpp
 )
 
 # Generate pio header

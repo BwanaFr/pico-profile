@@ -11,7 +11,7 @@ void setup() {
 
 uint8_t i = 0;
 
-void performCmdHandshake(){
+uint8_t performCmdHandshake(){
     //Lower CMD
   digitalWrite(PCMD, false);
   Serial.println("CMD low, wait for busy");
@@ -24,6 +24,7 @@ void performCmdHandshake(){
   digitalWrite(PCMD, true);
   Serial.println("Waiting for busy high");
   while(!digitalRead(PBSY)){}
+  return data;
 }
 
 /**
@@ -68,10 +69,28 @@ void performRead(){
   Serial.println("Read done!");
 }
 
+void writeCommand(uint8_t cmd, uint32_t block,
+                    uint8_t retry, uint8_t spare) {                      
+    uint8_t cmdBytes[6];
+    cmdBytes[0] = cmd;
+    cmdBytes[1] = (block >> 24) & 0xFF;
+    cmdBytes[2] = (block >> 16) & 0xFF;
+    cmdBytes[3] = (block & 0xFF);
+    cmdBytes[4] = retry;
+    cmdBytes[5] = spare;
+    Serial.println("Writing command");
+    for(uint8_t i=0;i< 6;++i){
+      writeData(cmdBytes[i]);
+    }
+}
 
 void loop() {
   Serial.println("Hit a key to start reading");
   while(Serial.available() == 0){}
   while(Serial.available() != 0){Serial.read();}
-  performCmdHandshake();
+  //uint8_t c = performCmdHandshake();
+  //if(c == 0x1){
+    writeCommand(0x2, 0x1, 0x20, 0x30);
+  //  performCmdHandshake();
+  //}
 }
