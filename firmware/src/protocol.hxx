@@ -221,6 +221,24 @@ private:
         return (value & 0x7F) | ((value >> 3) & 0x80);
     }
 
+    /**
+     * interleaves sectors
+     **/
+    static inline uint32_t interleave5(uint32_t sector)
+    {
+        static const uint32_t offset[]={0,5,10,15,4,9,14,3,8,13,2,7,12,1,6,11,16,21,26,31,20,25,30,19,24,29,18,23,28,17,22,27};
+        return offset[sector&31] + sector-(sector&31);
+    }
+
+    /**
+     * deinterleaves sectors
+     **/
+    static inline uint32_t deinterleave5(uint32_t sector)
+    {
+        static const uint32_t offset[]={0,13,10,7,4,1,14,11,8,5,2,15,12,9,6,3,16,29,26,23,20,17,30,27,24,21,18,31,28,25,22,19};
+        return offset[sector&31] + sector-(sector&31);
+    }
+
 };
 
 #endif

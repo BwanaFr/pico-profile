@@ -23,6 +23,12 @@ void data_isr(){
     irq_clear(PIO0_IRQ_0);
 }
 
+void cmd_isr(){
+    printf("CMD received");
+    pio_interrupt_clear(CMD_PIO, 0);
+    //irq_clear(PIO0_IRQ_0);
+}
+
 Protocol::Protocol(DC42File* file) :
     file_(file), state_(ProfileState::GET_COMMAND),
     received_(0), toSend_(0), status_(0)
@@ -109,7 +115,10 @@ void Protocol::configurePIO() {
 
     pio_sm_init(CMD_PIO, CMD_SM, pioCmdOffs_, &pioCmdCfg_);    //Initialize state machine
     pio_sm_set_pindirs_with_mask(CMD_PIO, CMD_SM, dir, modify);
-    pio_sm_set_enabled(CMD_PIO, CMD_SM, true);                 //Enable state machine
+    pio_sm_set_enabled(CMD_PIO, CMD_SM, true);                      //Enable state machine
+    irq_set_exclusive_handler(PIO0_IRQ_0, cmd_isr);                 //Set IRQ handler for new command
+    irq_set_enabled(PIO0_IRQ_0, true);                              //Enable IRQ
+    pio_set_irq0_source_enabled(CMD_PIO, pis_interrupt0, true);     //IRQ0 
 }
 
 void Protocol::handleProtocol() {
@@ -156,32 +165,47 @@ void Protocol::manageCommand(bool ackReceived) {
         //Lower the busy line
         handshakeDone();
         printf("Receiving command bytes... ");
+        absolute_time_t expiryTime = make_timeout_time_ms(200);        
         //Received enough bytes for command
         for(int i=0;i<6;++i){
+            bool dataReady = true;
+            while(pio_sm_is_rx_fifo_empty(DATA_PIO, DATA_SM)){
+                if(absolute_time_diff_us(expiryTime, get_absolute_time())>0){
+                    printf("No command bytes received in 200ms.\n");
+                    dataReady = false;
+                    break;
+                }
+            }
+            if(!dataReady){
+                break;
+            }
             buffer_[i] = gpioToByte(pio_sm_get_blocking(DATA_PIO, DATA_SM));
             printf(" 0x%x", buffer_[i]);
             received_++;
         }
         printf("\n");
-    }
-    if(received_ >= CMD_LENGTH){
-        lastCmd_.command = static_cast<ProfileCommand>(buffer_[0]);
-        lastCmd_.blockNumber = buffer_[1] << 16 | buffer_[2] << 8 | buffer_[3];
-        lastCmd_.retryCount = buffer_[4];
-        lastCmd_.sparesThreshold = buffer_[5];
-        printCommand(lastCmd_);
-        //Change state depending on command
-        switch(lastCmd_.command){
-            case ProfileCommand::READ:
-                //Read command
-                switchState(ProfileState::READ_BLOCK);                
-            break;
-            case ProfileCommand::WRITE:
-                //Write command
-                switchState(ProfileState::RCV_WRITE_DATA);
-            break;
-            default:
-                switchState(ProfileState::GET_COMMAND); 
+    
+        if(received_ >= CMD_LENGTH-2){
+            lastCmd_.command = static_cast<ProfileCommand>(buffer_[0]);
+            lastCmd_.blockNumber = buffer_[1] << 16 | buffer_[2] << 8 | buffer_[3];
+            lastCmd_.retryCount = received_ >=4 ? buffer_[4] : 0x0;
+            lastCmd_.sparesThreshold = received_ >=5 ? buffer_[5] : 0x0;
+            printCommand(lastCmd_);
+            //Change state depending on command
+            switch(lastCmd_.command){
+                case ProfileCommand::READ:
+                    //Read command
+                    switchState(ProfileState::READ_BLOCK);                
+                break;
+                case ProfileCommand::WRITE:
+                    //Write command
+                    switchState(ProfileState::RCV_WRITE_DATA);
+                break;
+                default:
+                    switchState(ProfileState::GET_COMMAND);
+            }
+        }else{
+            switchState(ProfileState::GET_COMMAND);
         }
     }
 }
@@ -194,19 +218,22 @@ void Protocol::manageRead(bool ackReceived) {
         reInitDataStateMachine();
         //Send data
         int i=0;
-        absolute_time_t nextPrintTime = make_timeout_time_ms(500);
+        absolute_time_t expiryTime = make_timeout_time_ms(100);
         printf("Sending data to FIFO\n");
         while(toSend_ > 0) {
-            if(pio_sm_is_tx_fifo_full(DATA_PIO, DATA_SM) && (absolute_time_diff_us(nextPrintTime, get_absolute_time()) < 0)){
-                printf("No send since 500ms giving up...\n");
-                break;
+            if(pio_sm_is_tx_fifo_full(DATA_PIO, DATA_SM)){
+                int64_t timeDiff = absolute_time_diff_us(expiryTime, get_absolute_time());
+                if(timeDiff>0){
+                    printf("No send since 100ms giving up...\n");
+                    reInitDataStateMachine();
+                    break;
+                }
             }else{
                 pio_sm_put_blocking(DATA_PIO, DATA_SM, buffer_[i]);
                 printf(".");
-                nextPrintTime = make_timeout_time_ms(500);
+                ++i;
+                --toSend_;
             }
-            ++i;
-            --toSend_;
         }
         printf("\nRead %d bytes\n", i);
         switchState(ProfileState::GET_COMMAND);
@@ -238,6 +265,7 @@ void Protocol::manageReceiveWriteData(bool ackReceived) {
 void Protocol::performWrite(bool ackReceived) {
     if(ackReceived){
         printf("Writing to disk, block $%lx\n", lastCmd_.blockNumber);
+        if (lastCmd_.blockNumber<0x00f00000) lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
         file_->writeBlock(lastCmd_.blockNumber, &buffer_[4]);
         file_->writeTag(lastCmd_.blockNumber, &buffer_[516]);
         handshakeDone();
@@ -252,6 +280,7 @@ void Protocol::readToBuffer() {
     //Read datablocks from file at offset 4
     //First bytes will be the status bit
     absolute_time_t start = get_absolute_time();
+    if (lastCmd_.blockNumber<0x00f00000)   lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
     if(lastCmd_.blockNumber != SPARE_TABLE_ADDR){
         if(!file_->readBlock(lastCmd_.blockNumber, buffer_+4)){
             //Read failure, need to raise some status bits

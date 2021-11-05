@@ -33,8 +33,8 @@ void writeCommand(uint8_t cmd, uint32_t block,
                     uint8_t retry, uint8_t spare) {                      
     uint8_t cmdBytes[6];
     cmdBytes[0] = cmd;
-    cmdBytes[1] = (block >> 24) & 0xFF;
-    cmdBytes[2] = (block >> 16) & 0xFF;
+    cmdBytes[1] = (block >> 16) & 0xFF;
+    cmdBytes[2] = (block >> 8) & 0xFF;
     cmdBytes[3] = (block & 0xFF);
     cmdBytes[4] = retry;
     cmdBytes[5] = spare;
@@ -43,65 +43,78 @@ void writeCommand(uint8_t cmd, uint32_t block,
       writeData(cmdBytes[i]);
     }
 }
+
+void writePartialCommand(uint8_t cmd, uint32_t block) {                      
+    uint8_t cmdBytes[4];
+    cmdBytes[0] = cmd;
+    cmdBytes[1] = (block >> 16) & 0xFF;
+    cmdBytes[2] = (block >> 8) & 0xFF;
+    cmdBytes[3] = (block & 0xFF);
+    Serial.println("Writing partial command");
+    for(uint8_t i=0;i<4;++i){
+      writeData(cmdBytes[i]);
+    }
+}
+
 static uint32_t readBlock = 0;
  
 void doRead(bool benchmark){
   uint8_t resp = 0;
   Serial.println("Performing read");
   resp = performCmdHandshake();
-  if(resp == 0x1){
-    //Write read command
-    writeCommand(0x0, readBlock++, 0x2, 0x3);
-    //Wait for confirmation
-    resp = performCmdHandshake();
-    if(resp != 2){
-      Serial.print("Unexpected Profile response (0x2) -> ");
-      Serial.println(resp);
-      return;
-    }
-    uint32_t start = millis();
-    //Read complete response
-    uint8_t response[536];
-    for(int i=0;i<536;++i){
-      response[i] = readData();
-    }
-    uint32_t elapsed = millis() - start;
-
-    if(!benchmark){
-      int loc = 0;
-      //Read status bytes
-      Serial.print("Status :");
-      for(int i=0;i<4;++i) {
-        Serial.print(" 0x");
-        Serial.print(response[loc++], HEX);
-      }
-      Serial.println();
-      //Read 512 block data
-      int count = 0;
-      while(count < 512){
-        Serial.print(count, HEX);
-        Serial.print("\t : ");
-        for(int i=0;i<32;++i){
-          Serial.print(" 0x");
-          Serial.print(response[loc++], HEX);
-          ++count;
-        }
-        Serial.println();
-      }
-      Serial.print("Tag : ");
-      for(int i=0;i<20;++i){
-        Serial.print(" 0x");
-        Serial.print(response[loc++], HEX);
-      }
-      Serial.println();
-    }
-    Serial.print("Read cycle done in ");
-    Serial.print(elapsed);
-    Serial.println("ms.");
-  }else{
+  if(resp != 0x1){
     Serial.print("Profile not ready! -> ");
     Serial.println(resp);
-  } 
+    return;
+  }
+  //Write read command
+  writeCommand(0x0, readBlock++, 0x2, 0x3);
+  //Wait for confirmation
+  resp = performCmdHandshake();
+  if(resp != 2){
+    Serial.print("Unexpected Profile response (0x2) -> ");
+    Serial.println(resp);
+    return;
+  }
+  uint32_t start = millis();
+  //Read complete response
+  uint8_t response[536];
+  for(int i=0;i<536;++i){
+    response[i] = readData();
+  }
+  uint32_t elapsed = millis() - start;
+
+  if(!benchmark){
+    int loc = 0;
+    //Read status bytes
+    Serial.print("Status :");
+    for(int i=0;i<4;++i) {
+      Serial.print(" 0x");
+      Serial.print(response[loc++], HEX);
+    }
+    Serial.println();
+    //Read 512 block data
+    int count = 0;
+    while(count < 512){
+      Serial.print(count, HEX);
+      Serial.print("\t : ");
+      for(int i=0;i<32;++i){
+        Serial.print(" 0x");
+        Serial.print(response[loc++], HEX);
+        ++count;
+      }
+      Serial.println();
+    }
+    Serial.print("Tag : ");
+    for(int i=0;i<20;++i){
+      Serial.print(" 0x");
+      Serial.print(response[loc++], HEX);
+    }
+    Serial.println();
+  }
+  Serial.print("Read cycle done in ");
+  Serial.print(elapsed);
+  Serial.println("ms.");  
 }
 
 void doWrite() {
@@ -139,6 +152,43 @@ void doWrite() {
   Serial.println("\nWrite done!");
 }
 
+void doSpare(bool partialCmd) {
+  uint8_t resp = 0;
+  Serial.println("Performing spare table read");
+  resp = performCmdHandshake();
+  if(resp == 0x1){
+    //Write read command
+    if(partialCmd){
+      writePartialCommand(0x0, 0xffffff);
+    }else{      
+      writeCommand(0x0, 0xffffff, 0x2, 0x3);
+    }
+    //Wait for confirmation
+    resp = performCmdHandshake();
+    if(resp != 2){
+      Serial.print("Unexpected Profile response (0x2) -> ");
+      Serial.println(resp);
+      return;
+    }
+    uint32_t start = millis();
+    //Read complete response
+    char response[20];
+    for(int i=0;i<20;++i){
+      response[i] = (char)readData();
+    }
+    uint32_t elapsed = millis() - start;
+    
+    Serial.print("Read cycle done in ");
+    Serial.print(elapsed);
+    Serial.println("ms.");
+    Serial.print("Profile name :");
+    Serial.println(&response[4]);
+  }else{
+    Serial.print("Profile not ready! -> ");
+    Serial.println(resp);
+  } 
+}
+
 void loop() {
   Serial.println("Hit a key to start reading");
   while(Serial.available() == 0){}
@@ -149,7 +199,7 @@ void loop() {
     doRead(false);    
     break;
   case 't':
-    doRead(true);    
+    doSpare(true);
     break;
   case 'w':
     doWrite();
@@ -162,5 +212,8 @@ void loop() {
       writeData(i & 0xFF);
     }
     break;
+  case 's':
+    doSpare(false);
   }
+
 }

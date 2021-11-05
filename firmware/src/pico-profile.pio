@@ -7,16 +7,17 @@
 ; Side pin is the busy
 .side_set 1
 
-
+.wrap_target
 wait 0 gpio CMD_GPIO    side 0      
 wait 1 gpio CMD_GPIO    side 0      ; Wait for the CMD to be raised
+irq wait CMD_RCV_IRQ    side 0      ; Raise IRQ to signal new command
 out pins, 8             side 0      ; Put what prepared by the MCU to the bus
 wait 0 gpio CMD_GPIO    side 1      ; Wait for the CMD to be high
 in pins, 11             side 1      ; Read response
 set x, 0                side 1      ; Initialize x
 loop:
 jmp !x loop             side 1      ; Wait for X to be != 0
-
+.wrap
 
 % c-sdk {
 
