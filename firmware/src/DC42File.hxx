@@ -89,6 +89,10 @@ public:
     bool computeTagChecksum(uint32_t &chksum);
 
     static FATFS fatFs_;                            //!< FatFs work area
+
+    static constexpr uint16_t BYTES_PER_BLOCK = 512;            //!< Assume 512 bytes per block
+    static constexpr uint16_t BYTES_PER_TAG = 20;               //!< Assume 20 bytes per tag
+
 private:    
     static inline uint32_t ror32(uint32_t data) {uint32_t carry=(data & 1)<<31; return (data>>1)|carry; }
     template<typename T>
@@ -124,8 +128,6 @@ private:
     static constexpr uint8_t MAGIC_NUMBER = 0x52;               //!< Private Word/Magic Number offset in file
     static constexpr uint8_t IMAGE_DATA = 0x54;                 //!< Image data
     static constexpr uint16_t MAGIC_NUMBER_VAL = 0x0100;        //!< Magic number
-    static constexpr uint16_t BYTES_PER_BLOCK = 512;            //!< Assume 512 bytes per block
-    static constexpr uint16_t BYTES_PER_TAG = 20;               //!< Assume 20 bytes per tag
     
     FRESULT fatFsResult_;                   //!< Result of FatFs calls
     enum InternalError {

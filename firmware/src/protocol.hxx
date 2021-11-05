@@ -40,7 +40,7 @@ private:
         READ_BLOCK,             //!< Read data block
         RCV_WRITE_DATA,         //!< Receive, write data block
         RCV_WRITE_VERIFY_DATA,  //!< Receive, write/verify data block
-        DO_WRITE,               //!< Do actual write or write/verify on disk
+        DO_WRITE=6,             //!< Do actual write or write/verify on disk
     };
 
     static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
@@ -87,7 +87,7 @@ private:
     static constexpr uint32_t ID6_PIN = 22;         //D6 GPIO (in)
     static constexpr uint32_t ID7_PIN = 26;         //D1 GPIO (in)
     static constexpr uint32_t CMD_PIN = 27;         //CMD GPIO (in)
-    static constexpr uint32_t STRB_PIN = 28;         //Strobe GPIO (in)
+    static constexpr uint32_t STRB_PIN = 28;        //Strobe GPIO (in)
 
     /**
      * Command message received
@@ -100,11 +100,34 @@ private:
         inline CommandMessage() : command(READ), blockNumber(0), retryCount(0), sparesThreshold(0){};
     } CommandMessage;
 
+#pragma pack(push, 1) 
+    typedef struct SpareTable {
+        char name[13];                  //!< Device name, should be PROFILE
+        uint8_t deviceNum[3];           //!< Device ID 0,0,0x10-10MB ProFile
+        uint16_t fwVersion;             //!< Firmware version
+        uint8_t numBlocks[3];           //!< Number of blocks
+        uint16_t bytesPerSector;        //!< Number of bytes per sector
+        uint8_t spareBlocksCount;       //!< Total number of spare blocks
+        uint8_t spareBlocksAllocated;   //!< Number of spare blocks allocated
+        uint8_t badBlocksAllocated;     //!< Number of bad blocks currently allocated
+        uint8_t spareTable[506];        //!< Spare table the numbers of the spared blocks and the bad blocks are listed (3 bytes per block number), with a $FFFFFF at the end of each list.
+        inline SpareTable() : name({'P','R','O','F','I','L','E',' ',' ',' ',' ',' ',0x0}),
+            deviceNum({0x0, 0x0, 0x0}), fwVersion(0x9803), numBlocks({0x0,0x0,0x0}),
+            bytesPerSector(0x1402), spareBlocksCount(32), spareBlocksAllocated(0), badBlocksAllocated(0)
+        {
+            spareTable[0] = spareTable[1] = spareTable[2] = 0xFF;
+            for(int i=3;i<506;++i){
+                spareTable[i] = 0x0;
+            }
+        };
+    } SpareTable;
+#pragma pack(pop)
+
     DC42File* file_;                //!< Pointer to file
     ProfileState state_;            //!< State machine
 
-    uint pioCmdHShkOffs_;           //!< Cmd handshake PIO state machine offset
-    pio_sm_config pioCmdHShkCfg_;   //!< Cmd handshake PIO configuration
+    uint pioCmdOffs_;               //!< Cmd handshake PIO state machine offset
+    pio_sm_config pioCmdCfg_;       //!< Cmd handshake PIO configuration
 
     uint pioDataOffs_;              //!< Data read/write PIO state machine offset
     pio_sm_config pioDataCfg_;      //!< Data read/write PIO configuration
@@ -114,6 +137,13 @@ private:
     uint32_t toSend_;                 //!< Number of data to be sent
     uint32_t status_;               //!< 4 bytes status
     CommandMessage lastCmd_;        //!< Last received command
+    SpareTable spareTable_;         //!< Spare table
+
+
+    /**
+     * Configures PIO resources
+     **/
+    void configurePIO();
 
     /**
      * Change state machine
@@ -129,7 +159,7 @@ private:
     /**
      * Resets the data state machine
      **/
-    void resetDataStateMachine();
+    void reInitDataStateMachine();
 
     /**
      * Sets status bits to true
@@ -154,10 +184,30 @@ private:
     void manageRead(bool ackReceived);
 
     /**
+     * Handle a write request
+     **/
+    void manageReceiveWriteData(bool ackReceived);
+    
+    /**
+     * Performs write
+     **/
+    void performWrite(bool ackReceived);
+
+    /**
      * Reads data from file
      * and prepare buffer
      **/
     void readToBuffer();
+
+    /**
+     * Dumps the buffer
+     **/
+    void dumpBuffer(bool status = true, bool data = true, bool tag = true);
+
+    /**
+     * Updates the spare table data
+     **/
+    void updateSpareTable();
 
     /**
      * Debug function to print received command
