@@ -2,6 +2,7 @@
 #include "DC42File.hxx"
 #include <stdio.h>
 #include "hardware/irq.h"
+#include "hardware/dma.h"
 #include <string.h>
 
 //PIO for command handshake
@@ -10,47 +11,48 @@
 
 #define PROFILE_DEBUG 1
 
+#define RX_TO_BYTE(i) gpioToByte(rxBuffer_[i])
+
 Protocol* singleton = nullptr;
 
-void data_isr(){
-    if(pio_interrupt_get(DATA_PIO, pis_sm0_rx_fifo_not_empty)) {
-        printf("Data available\n");
-        singleton->dataReceived();
-    }else{
-        //Data TX FIFO
-        printf("Data send\n");
-    }
-    irq_clear(PIO0_IRQ_0);
+/**
+ * ISR when CMD line goes low
+ * Called by the CMD state machine
+ **/
+void __isr cmd_isr() {
+    singleton->commandReceived();
 }
 
-void cmd_isr(){
-    printf("CMD received");
-    pio_interrupt_clear(CMD_PIO, 0);
-    //irq_clear(PIO0_IRQ_0);
+/**
+ * Data DMA transfer completed (read or write)
+ **/
+void __isr data_dma_done() {
+    singleton->dataDMADone();
 }
 
 Protocol::Protocol(DC42File* file) :
-    file_(file), state_(ProfileState::GET_COMMAND),
+    file_(file),
+    nextState_(ProfileState::GET_COMMAND),
+    dataReadDMAChan_(-1), dataWriteDMAChan_(-1),
     received_(0), toSend_(0), status_(0)
 {
     singleton = this;
-    
+    //Initialize semaphores
+    sem_init(&dataWriteSem_, 0, 1); 
+    sem_init(&dataReadSem_, 0, 1);
     //Initialize PIO state machines
-    configurePIO();    
-    switchState(state_);
+    configurePIO();
+    //Initial configuration of DMA channels
+    configureDMA();
+    //Updates the spare table depending on file
     updateSpareTable();
+    //Sets the state machine to ready to accept commands
+    setState(nextState_);
 }
 
 Protocol::~Protocol() {
 }
 
-void Protocol::switchState(ProfileState newState) {
-    //Put next state in FIFO. The PIO will put
-    //when CMD goes high
-    printf("Switching state to : %u\n", newState);
-    pio_sm_put_blocking(CMD_PIO, CMD_SM, newState);
-    state_ = newState;
-}
 
 void Protocol::configurePIO() {
     uint32_t modify = 0;
@@ -85,24 +87,38 @@ void Protocol::configurePIO() {
     dir |= 1u << OD5_PIN;
     dir |= 1u << OD6_PIN;
     dir |= 1u << OD7_PIN;
-    dir |= 1u << BSY_PIN; 
+    dir |= 1u << BSY_PIN;
+    //Init GPIO
     for(uint32_t i=0;i<32;++i){
         if((modify>>i) & 0x1){
             pio_gpio_init(DATA_PIO, i);
         }
     }
-    //Initialises the data state machine
-    pioDataOffs_ = pio_add_program(DATA_PIO, &pico_profile_data_program);
-    pioDataCfg_ = pico_profile_data_program_get_default_config(pioDataOffs_);
-    sm_config_set_out_pins(&pioDataCfg_, 0, 8);                 //8 outputs
-    sm_config_set_out_shift(&pioDataCfg_, true, true, 8);       //Shift right, autopull of 8 bits
-    sm_config_set_in_pins(&pioDataCfg_, ID0_PIN);               //Input starting at ID0_PIN (GPIO16)
-    sm_config_set_in_shift(&pioDataCfg_, false, true, 11);      //Shift right, autopull of 11 bits (to take into account GPIO 26)
-    sm_config_set_jmp_pin(&pioDataCfg_, RW_PIN);                //Use R/W as jump pin
+    //Initialises the data read state machine
+    pioDataReadOffs_ = pio_add_program(DATA_PIO, &pico_profile_data_read_program);
+    pioDataReadCfg_ = pico_profile_data_read_program_get_default_config(pioDataReadOffs_);
+    sm_config_set_out_pins(&pioDataReadCfg_, 0, 8);                 //8 outputs
+    sm_config_set_out_shift(&pioDataReadCfg_, true, true, 8);       //Shift right, autopull of 8 bits
+    sm_config_set_in_pins(&pioDataReadCfg_, ID0_PIN);               //Input starting at ID0_PIN (GPIO16)
+    sm_config_set_in_shift(&pioDataReadCfg_, false, true, 11);      //Shift right, autopull of 11 bits (to take into account GPIO 26)
+    sm_config_set_jmp_pin(&pioDataReadCfg_, RW_PIN);                //Use R/W as jump pin
 
-    pio_sm_init(DATA_PIO, DATA_SM, pioDataOffs_, &pioDataCfg_); //Initialize state machine
-    pio_sm_set_pindirs_with_mask(DATA_PIO, DATA_SM, dir, modify);
-    pio_sm_set_enabled(DATA_PIO, DATA_SM, false);                //Enable state machine
+    pio_sm_init(DATA_PIO, DATA_READ_SM, pioDataReadOffs_, &pioDataReadCfg_);     //Initialize state machine
+    pio_sm_set_pindirs_with_mask(DATA_PIO, DATA_READ_SM, dir, modify);
+    pio_sm_set_enabled(DATA_PIO, DATA_READ_SM, false);              //Don't enable state machine yet
+
+    //Initialises the data write state machine
+    pioDataWriteOffs_ = pio_add_program(DATA_PIO, &pico_profile_data_write_program);
+    pioDataWriteCfg_ = pico_profile_data_write_program_get_default_config(pioDataWriteOffs_);
+    sm_config_set_out_pins(&pioDataWriteCfg_, 0, 8);                 //8 outputs
+    sm_config_set_out_shift(&pioDataWriteCfg_, true, true, 8);       //Shift right, autopull of 8 bits
+    sm_config_set_in_pins(&pioDataWriteCfg_, ID0_PIN);               //Input starting at ID0_PIN (GPIO16)
+    sm_config_set_in_shift(&pioDataWriteCfg_, false, true, 11);      //Shift right, autopull of 11 bits (to take into account GPIO 26)
+    sm_config_set_jmp_pin(&pioDataWriteCfg_, RW_PIN);                //Use R/W as jump pin
+
+    pio_sm_init(DATA_PIO, DATA_WRITE_SM, pioDataWriteOffs_, &pioDataWriteCfg_);     //Initialize state machine
+    pio_sm_set_pindirs_with_mask(DATA_PIO, DATA_WRITE_SM, dir, modify);
+    pio_sm_set_enabled(DATA_PIO, DATA_WRITE_SM, false);              //Don't enable state machine yet
 
     //Initializes the command handshake PIO
     pioCmdOffs_ = pio_add_program(CMD_PIO, &pico_profile_cmd_program);
@@ -118,227 +134,112 @@ void Protocol::configurePIO() {
     pio_sm_set_enabled(CMD_PIO, CMD_SM, true);                      //Enable state machine
     irq_set_exclusive_handler(PIO0_IRQ_0, cmd_isr);                 //Set IRQ handler for new command
     irq_set_enabled(PIO0_IRQ_0, true);                              //Enable IRQ
-    pio_set_irq0_source_enabled(CMD_PIO, pis_interrupt0, true);     //IRQ0 
+    pio_set_irq0_source_enabled(CMD_PIO, pis_interrupt0, true);     //IRQ0
+}
+
+void Protocol::configureDMA() {
+    printf("Configuring DMA for data transfer\n");
+    irq_set_exclusive_handler(DMA_IRQ_1, data_dma_done);       //Set IRQ handler for DMA transfer
+    irq_set_enabled(DMA_IRQ_1, true);                          //Enable IRQ
 }
 
 void Protocol::handleProtocol() {
-    bool ackReceived = false;
     if(pio_sm_get_rx_fifo_level(CMD_PIO, CMD_SM) != 0){
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
-        printf("[%d] Apple response : 0x%x\n", state_, resp);
+        printf("[%d] Apple response : 0x%x\n", nextState_, resp);
         if(resp != APPLE_ACK){
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
             handshakeDone();
-            switchState(ProfileState::GET_COMMAND);
+            setState(ProfileState::GET_COMMAND);
             return;
         }else{
             resetStatus(STATUS_55_NOT_RECEIVED);
-        }
-        ackReceived = true;
-        //Prepare to receive bunch of data
-        reInitDataStateMachine();
-    }
-    
-    switch (state_)
-    {
-    case ProfileState::GET_COMMAND:
-        manageCommand(ackReceived);                
-        break;
-    case ProfileState::READ_BLOCK:
-        manageRead(ackReceived);
-        break;
-    case ProfileState::RCV_WRITE_DATA:
-        manageReceiveWriteData(ackReceived);
-        break;
-    case ProfileState::DO_WRITE:
-        performWrite(ackReceived);
-        break;
-    default:
-        break;
-    }
-}
-
-void Protocol::manageCommand(bool ackReceived) {
-    if(ackReceived) {
-        //Lower the busy line
-        handshakeDone();
-        printf("Receiving command bytes... ");
-        absolute_time_t expiryTime = make_timeout_time_ms(200);        
-        //Received enough bytes for command
-        for(int i=0;i<6;++i){
-            bool dataReady = true;
-            while(pio_sm_is_rx_fifo_empty(DATA_PIO, DATA_SM)){
-                if(absolute_time_diff_us(expiryTime, get_absolute_time())>0){
-                    printf("No command bytes received in 200ms.\n");
-                    dataReady = false;
+            switch(nextState_) {
+                case ProfileState::GET_COMMAND:
+                    getCommand();
                     break;
-                }
-            }
-            if(!dataReady){
-                break;
-            }
-            buffer_[i] = gpioToByte(pio_sm_get_blocking(DATA_PIO, DATA_SM));
-            printf(" 0x%x", buffer_[i]);
-            received_++;
-        }
-        printf("\n");
-    
-        if(received_ >= CMD_LENGTH-2){
-            lastCmd_.command = static_cast<ProfileCommand>(buffer_[0]);
-            lastCmd_.blockNumber = buffer_[1] << 16 | buffer_[2] << 8 | buffer_[3];
-            lastCmd_.retryCount = received_ >=4 ? buffer_[4] : 0x0;
-            lastCmd_.sparesThreshold = received_ >=5 ? buffer_[5] : 0x0;
-            printCommand(lastCmd_);
-            //Change state depending on command
-            switch(lastCmd_.command){
-                case ProfileCommand::READ:
-                    //Read command
-                    switchState(ProfileState::READ_BLOCK);                
-                break;
-                case ProfileCommand::WRITE:
-                    //Write command
-                    switchState(ProfileState::RCV_WRITE_DATA);
-                break;
+                case ProfileState::READ_BLOCK:
+                    readBlock();
+                    break;
+                case ProfileState::RCV_WRITE_DATA:
+                case ProfileState::RCV_WRITE_VERIFY_DATA:
+                    writeBlock();
+                    break;
+                case ProfileState::DO_WRITE:
+                    doWrite();
+                    break;
                 default:
-                    switchState(ProfileState::GET_COMMAND);
-            }
-        }else{
-            switchState(ProfileState::GET_COMMAND);
-        }
-    }
-}
-
-void Protocol::manageRead(bool ackReceived) {
-    if(ackReceived){
-        readToBuffer();
-        //Lower the busy line
-        handshakeDone();
-        reInitDataStateMachine();
-        //Send data
-        int i=0;
-        absolute_time_t expiryTime = make_timeout_time_ms(100);
-        printf("Sending data to FIFO\n");
-        while(toSend_ > 0) {
-            if(pio_sm_is_tx_fifo_full(DATA_PIO, DATA_SM)){
-                int64_t timeDiff = absolute_time_diff_us(expiryTime, get_absolute_time());
-                if(timeDiff>0){
-                    printf("No send since 100ms giving up...\n");
-                    reInitDataStateMachine();
+                    printf("Unsupported state : %u\n", nextState_);
+                    setState(ProfileState::GET_COMMAND);
                     break;
-                }
-            }else{
-                pio_sm_put_blocking(DATA_PIO, DATA_SM, buffer_[i]);
-                printf(".");
-                ++i;
-                --toSend_;
             }
         }
-        printf("\nRead %d bytes\n", i);
-        switchState(ProfileState::GET_COMMAND);
-    }
-    /*if(toSend_ <= 0){
-        printf("Read done\n");
-        switchState(ProfileState::GET_COMMAND);
-    }*/
-}
-
-void Protocol::manageReceiveWriteData(bool ackReceived) {
-    if(ackReceived) {
-        //Lower the busy line (we should be ready to consume data)
-        handshakeDone();
-        //Get data
-        for(int i=0;i<512;++i){
-            buffer_[i+4] = gpioToByte(pio_sm_get_blocking(DATA_PIO, DATA_SM));
-        }
-        //Get tag
-        for(int i=516;i<536;++i){
-            buffer_[i] = gpioToByte(pio_sm_get_blocking(DATA_PIO, DATA_SM));
-        }
-        printf("Receive block $%lx completed\n", lastCmd_.blockNumber);
-        dumpBuffer(false);
-        switchState(ProfileState::DO_WRITE);
     }
 }
 
-void Protocol::performWrite(bool ackReceived) {
-    if(ackReceived){
-        printf("Writing to disk, block $%lx\n", lastCmd_.blockNumber);
-        if (lastCmd_.blockNumber<0x00f00000) lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
-        file_->writeBlock(lastCmd_.blockNumber, &buffer_[4]);
-        file_->writeTag(lastCmd_.blockNumber, &buffer_[516]);
-        handshakeDone();
-        for(uint8_t i=0;i<4;++i){
-            pio_sm_put_blocking(DATA_PIO, DATA_SM, 0x0);
-        }
-        switchState(ProfileState::GET_COMMAND);
+
+void Protocol::prepareForWrite(uint32_t count) {
+    //Reset receive state machine
+    pio_sm_init(DATA_PIO, DATA_WRITE_SM, pioDataWriteOffs_, &pioDataWriteCfg_);
+    pio_sm_clear_fifos(DATA_PIO, DATA_WRITE_SM);
+    pio_sm_set_enabled(DATA_PIO, DATA_WRITE_SM, true);
+
+    //Prepare DMA semaphore
+    sem_reset(&dataWriteSem_, 0);
+
+    if(dataWriteDMAChan_ < 0 ){
+        dataWriteDMAChan_ = dma_claim_unused_channel(true);
+        dma_channel_set_irq1_enabled(dataWriteDMAChan_, true);
     }
+    dma_channel_config c = dma_channel_get_default_config(dataWriteDMAChan_);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c, pio_get_dreq(DATA_PIO, DATA_WRITE_SM, false));
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_16); //Use 16 bits transfers are we read up to GPIO26
+    dma_channel_configure(
+        dataWriteDMAChan_,
+        &c,
+        rxBuffer_,                          // Destination pointer
+        &DATA_PIO->rxf[DATA_WRITE_SM],      // Source pointer
+        count,                              // Number of transfers
+        true                                // Start
+    );
 }
 
-void Protocol::readToBuffer() {
-    //Read datablocks from file at offset 4
-    //First bytes will be the status bit
-    absolute_time_t start = get_absolute_time();
-    if (lastCmd_.blockNumber<0x00f00000)   lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
-    if(lastCmd_.blockNumber != SPARE_TABLE_ADDR){
-        if(!file_->readBlock(lastCmd_.blockNumber, buffer_+4)){
-            //Read failure, need to raise some status bits
-            //TODO: If failure, does the apple read all bytes?
-            setStatus(STATUS_UNSUCCESS);
-        }
-        if(!file_->readTag(lastCmd_.blockNumber, buffer_+4+512)){
-            setStatus(STATUS_UNSUCCESS);
-        }
-    }else{
-        printf("Spare table size : %u\n", sizeof(SpareTable));
-        memcpy(&buffer_[4], &spareTable_.name[0], sizeof(SpareTable));
-        status_ = 0;
-    }
-    absolute_time_t end = get_absolute_time();
-    printf("Time to read data : %lldus\n", absolute_time_diff_us(start, end));
-    //Build status bytes
-    buffer_[0] = status_ & 0xFF;
-    buffer_[1] = (status_>>8) & 0xFF;
-    buffer_[2] = (status_>>16) & 0xFF;
-    buffer_[3] = (status_>>24) & 0xFF;
+void Protocol::prepareForRead(uint32_t count) {
+    //Reset send state machine
+    pio_sm_init(DATA_PIO, DATA_READ_SM, pioDataReadOffs_, &pioDataReadCfg_);
+    pio_sm_clear_fifos(DATA_PIO, DATA_READ_SM);
+    pio_sm_set_enabled(DATA_PIO, DATA_READ_SM, true);
 
-    //Read status bytes
-#ifdef PROFILE_DEBUG
-    dumpBuffer();
-#endif
-    //Send first byte
-    toSend_ = BUFFER_SIZE;
+    //Prepare DMA semaphore
+    sem_reset(&dataReadSem_, 0);
+    if(dataReadDMAChan_<0){
+        dataReadDMAChan_ = dma_claim_unused_channel(true);
+        dma_channel_set_irq1_enabled(dataReadDMAChan_, true);
+    }
+    dma_channel_config c = dma_channel_get_default_config(dataReadDMAChan_);
+    channel_config_set_read_increment(&c, true);
+    channel_config_set_write_increment(&c, false);
+    channel_config_set_dreq(&c, pio_get_dreq(DATA_PIO, DATA_READ_SM, true));
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
+    dma_channel_configure(
+        dataReadDMAChan_,
+        &c,
+        &DATA_PIO->txf[DATA_READ_SM],   // Destination pointer
+        txBuffer_,                      // Source pointer
+        count,                          // Number of transfers
+        true                            // Start immediately
+    );
 }
 
-void Protocol::dumpBuffer(bool status, bool data, bool tag) {
-    int i = 0;
-    if(status){
-        printf("Status :");
-        for(int j=0;j<4;++j) {
-         printf(" 0x%x", buffer_[i++]);
-        }
-    }else{
-        i = 4;
-    }
-    if(data) {
-        //Read 512 block data
-        while(i < 516){
-            printf("\n%x\t", i-4);
-            for(int j=0;j<32;++j){
-                printf(" 0x%x", buffer_[i++]);
-            }
-        }
-    }else{
-        i = 516;
-    }
-    if(tag){
-        printf("\nTag : ");
-        for(int j=0;j<20;++j){
-            printf(" 0x%x", buffer_[i++]);
-        }
-    }
-    printf("\n");
+void Protocol::abortTransfer() {
+    dma_channel_abort(dataReadDMAChan_);
+    dma_channel_abort(dataWriteDMAChan_);
+    pio_sm_set_enabled(DATA_PIO, DATA_READ_SM, false);
+    pio_sm_set_enabled(DATA_PIO, DATA_WRITE_SM, false);
 }
 
 void Protocol::updateSpareTable() {
@@ -346,7 +247,7 @@ void Protocol::updateSpareTable() {
     if(!file_->getDataBlockCount(blockCount)){
         printf("Unable to get block count from file!\n");
     }else{
-        printf("Disk has %u blocks.\n", blockCount);
+        printf("Disk has %lu blocks.\n", blockCount);
     }
     switch (blockCount)
     {
@@ -365,30 +266,139 @@ void Protocol::updateSpareTable() {
     spareTable_.numBlocks[2] = blockCount & 0xFF;
 }
 
+void Protocol::getCommand() {
+    printf("Getting command\n");
+    for(int i=0;i<6;++i) rxBuffer_[i] = 0x0;
+    prepareForWrite(6);                         //Prepare a 6 bytes transfer
+    handshakeDone();                            //Lower busy
+    //Wait for data bytes to be transfered (within 100ms)
+    if(!sem_acquire_timeout_ms(&dataWriteSem_, 100)){
+        printf("Command bytes receive timeout!\n");
+        setState(ProfileState::GET_COMMAND);
+    }else{
+        //Build the command 
+        lastCmd_.command = static_cast<ProfileCommand>(RX_TO_BYTE(0));
+        lastCmd_.blockNumber = RX_TO_BYTE(1) << 16 | RX_TO_BYTE(2) << 8 | RX_TO_BYTE(3);
+        lastCmd_.retryCount = RX_TO_BYTE(4);
+        lastCmd_.sparesThreshold = RX_TO_BYTE(5);        
+        switch(lastCmd_.command){
+            case ProfileCommand::READ:
+                setState(ProfileState::READ_BLOCK);
+                break;
+            case ProfileCommand::WRITE:
+                setState(ProfileState::RCV_WRITE_DATA);
+                break;
+            case ProfileCommand::WRITE_VERIFY:
+                setState(ProfileState::RCV_WRITE_VERIFY_DATA);
+                break;
+            default:
+                printf("Unknown command : %x\n", nextState_);
+                setState(ProfileState::GET_COMMAND);
+                break;
+        }
+        printCommand(lastCmd_);
+    }
+}
+
+void Protocol::readBlock() {
+    printf("Read block\n");
+    if (lastCmd_.blockNumber<0x00f00000)   lastCmd_.blockNumber = deinterleave5(lastCmd_.blockNumber);
+    if(lastCmd_.blockNumber == SPARE_TABLE_ADDR){
+        //Spare table, 
+        memcpy(&txBuffer_[4], &spareTable_.name[0], sizeof(SpareTable));
+        status_ = 0;
+    }else if(lastCmd_.blockNumber == RAM_BUFFER_ADDR){
+        //Copy from rx to tx
+        for(int i=0;i<512+20;++i){
+            txBuffer_[i+4] = RX_TO_BYTE(rxBuffer_[i]);
+        }
+        status_ = 0;
+    }else{
+        //Read to buffer + 4 to keep space for status bytes
+        //TODO: Seems to start with tags, to check
+        if(!file_->readTag(lastCmd_.blockNumber, txBuffer_ + 4)) {
+            setStatus(STATUS_UNSUCCESS);
+        }
+        if(!file_->readBlock(lastCmd_.blockNumber, txBuffer_ + 4 + 20)) {
+            //Read failure, need to raise some status bits
+            //TODO: If failure, does the apple read all bytes?
+            setStatus(STATUS_UNSUCCESS);
+        }
+    }
+    //Build status bytes
+    txBuffer_[0] = status_ & 0xFF;
+    txBuffer_[1] = (status_>>8) & 0xFF;
+    txBuffer_[2] = (status_>>16) & 0xFF;
+    txBuffer_[3] = (status_>>24) & 0xFF;
+    prepareForRead();                                   //Prepare buffer for DMA
+    handshakeDone();                                    //Lower busy
+    printf("Waiting for transfer to be done...\n");
+    if(!sem_acquire_timeout_ms(&dataReadSem_, 100)){
+        printf("Data read timeout...\n");
+    }
+    printf("Read cycle done!\n");
+    setState(ProfileState::GET_COMMAND);    
+}
+
+void Protocol::writeBlock() {
+    printf("Write block\n");    
+    prepareForWrite();
+    handshakeDone();
+    printf("Waiting for transfer to be done...\n");
+    if(!sem_acquire_timeout_ms(&dataWriteSem_, 100)){
+        printf("Data write timeout...\n");
+        //TODO: Handle status
+    }
+    setState(ProfileState::DO_WRITE);
+}
+
+void Protocol::doWrite() {
+    printf("Writing to disk, block $%lx\n", lastCmd_.blockNumber);
+    if (lastCmd_.blockNumber<0x00f00000) lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
+    uint8_t bufByte[512];
+    for(int i=0;i<20;++i){
+        bufByte[i] = RX_TO_BYTE(i);
+    }
+    file_->writeTag(lastCmd_.blockNumber, bufByte);
+    for(int i=0;i<512;++i){
+        bufByte[i] = RX_TO_BYTE(i);
+    }
+    file_->writeBlock(lastCmd_.blockNumber, bufByte);
+    txBuffer_[0] = status_ & 0xFF;
+    txBuffer_[1] = (status_>>8) & 0xFF;
+    txBuffer_[2] = (status_>>16) & 0xFF;
+    txBuffer_[3] = (status_>>24) & 0xFF;
+    prepareForRead(4);
+    handshakeDone();
+    //Send status bytes
+    if(!sem_acquire_timeout_ms(&dataReadSem_, 200)){
+        printf("Write status bytes read timeout!\n");
+    }
+    printf("Do write completed!\n");
+    setState(ProfileState::GET_COMMAND);
+}
+
 void Protocol::handshakeDone() {
     //The handshake state machine will loop until
     //the X scratch register is not 0
     pio_sm_exec(CMD_PIO, CMD_SM, pio_encode_set(pio_x, 1));
 }
 
-void Protocol::reInitDataStateMachine() {
-    //Restart the data state machine
-    //pio_sm_restart(DATA_PIO, DATA_SM);
-    pio_sm_init(DATA_PIO, DATA_SM, pioDataOffs_, &pioDataCfg_);
-    pio_sm_set_enabled(DATA_PIO, DATA_SM, true);
-    received_ = 0;
+void Protocol::dataDMADone() {
+    if(dma_channel_get_irq1_status(dataReadDMAChan_)) {
+        dma_channel_acknowledge_irq1(dataReadDMAChan_);
+        sem_release(&dataReadSem_);
+    }
+    if(dma_channel_get_irq1_status(dataWriteDMAChan_)) {
+        dma_channel_acknowledge_irq1(dataWriteDMAChan_);
+        sem_release(&dataWriteSem_);
+    }
 }
 
-void Protocol::dataReceived() {
-    if(toSend_ == 0) {
-        if(received_ < BUFFER_SIZE){
-            buffer_[received_++] = pio_sm_get_blocking(DATA_PIO, DATA_SM);
-        }else{
-            printf("Received too much data\n");
-        }
-    }else{
-        printf("Received data but data send in progress\n");
-    }
+void Protocol::commandReceived() {
+    pio_interrupt_clear(CMD_PIO, 0);
+    //Cancel all pending DMA transfers
+    abortTransfer();
 }
 
 void Protocol::setStatus(uint32_t bits) {
@@ -397,6 +407,16 @@ void Protocol::setStatus(uint32_t bits) {
 
 void Protocol::resetStatus(uint32_t bits) {
     status_ &= ~bits;
+}
+
+void Protocol::setState(ProfileState newState) {
+    if(newState == ProfileState::GET_COMMAND){
+        pio_sm_init(CMD_PIO, CMD_SM, pioCmdOffs_, &pioCmdCfg_);
+        pio_sm_clear_fifos(CMD_PIO, CMD_SM);
+        pio_sm_set_enabled(CMD_PIO, CMD_SM, true);
+    }
+    pio_sm_put_blocking(CMD_PIO, CMD_SM, newState);
+    nextState_ = newState;
 }
 
 /**

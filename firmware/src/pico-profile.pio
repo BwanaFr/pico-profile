@@ -19,72 +19,33 @@ loop:
 jmp !x loop             side 1      ; Wait for X to be != 0
 .wrap
 
-% c-sdk {
-
-static inline pio_sm_config pico_profile_cmd_pio_init(PIO pio, uint sm, uint offset) {
-    //Configure outputs direction
-    //0x1FF : GPIO0 to GPIO8 as output (others as input)
-    //0x147F03FF : Modify GPIO 0-8, 9, 16-22, 26, 28
-    pio_sm_set_pindirs_with_mask(pio, sm, 0x1FF, 0x147F03FF);
-    /*for(uint i=0; i<=9; ++i)
-        pio_gpio_init(pio, i);
-    for(uint i=16; i<=22; ++i)
-        pio_gpio_init(pio, i);    
-    pio_gpio_init(pio, 26);
-    pio_gpio_init(pio, 28);    */
-    pio_sm_config c = pico_profile_cmd_program_get_default_config(offset);
-    sm_config_set_out_pins(&c, 0, 8);               //8 outputs
-    sm_config_set_out_shift(&c, true, true, 8);     //Shift right, autopull of 8 bits
-    sm_config_set_sideset_pins(&c, 8);              //Busy pin (side-set) is GPIO8
-    sm_config_set_in_pins(&c, 16);                  //Input starting at GPIO16
-    sm_config_set_in_shift(&c, false, true, 11);    //Shift right, autopull of 11 bits (to take into account GPIO 26)
-
-    pio_sm_init(pio, sm, offset, &c);           //Initialize state machine
-    pio_sm_set_enabled(pio, sm, true);          //Enable state machine
-    return c;
-}
-
-%}
-
-; Program to read data
-.program pico_profile_data
+; Program to read data (profile to host)
+.program pico_profile_data_read
 
 .wrap_target
 wait_data:
+;Host data is valid 100ns before the rising edge of strobe
+    wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
     wait 1 gpio STRB_GPIO               ; Waits for strobe to be low
     wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
-    jmp pin write_data                  ; Jumps depending on R/W
+    jmp pin wait_data                   ; Loop if host is writting
 read_data:
     ; Apple read something on bus
     out pins, 8                         ; Sets output to what it's in OSR
     jmp wait_data
-write_data:
-    in pins, 11                         ; Put on bus what is in ISR
 .wrap
 
-% c-sdk {
+; Program to write data (host to profile)
+.program pico_profile_data_write
 
-static inline pio_sm_config pico_profile_data_pio_init(PIO pio, uint sm, uint offset) {
-    //Configure outputs direction
-    //0xFF : GPIO0 to GPIO7 as output (others as input)
-    //0x147F03FF : Modify GPIO 0-7, 9, 16-22, 26, 28
-    pio_sm_set_pindirs_with_mask(pio, sm, 0xFF, 0x147F02FF);
-    for(uint i=0; i<=9; ++i)
-        pio_gpio_init(pio, i);
-    for(uint i=16; i<=22; ++i)
-        pio_gpio_init(pio, i);    
-    pio_gpio_init(pio, 26);
-    pio_gpio_init(pio, 28);
-    pio_sm_config c = pico_profile_data_program_get_default_config(offset);
-    sm_config_set_out_pins(&c, 0, 8);               //8 outputs
-    sm_config_set_out_shift(&c, true, true, 8);     //Shift right, autopull of 8 bits
-    sm_config_set_in_pins(&c, 16);                  //Input starting at GPIO16
-    sm_config_set_in_shift(&c, false, true, 11);    //Shift right, autopull of 11 bits (to take into account GPIO 26)
-    sm_config_set_jmp_pin(&c, 9);                   //Use R/W as jump pin
-
-    pio_sm_init(pio, sm, offset, &c);           //Initialize state machine
-    pio_sm_set_enabled(pio, sm, true);          //Enable state machine
-    return c;
-}
-
-%}
+.wrap_target
+wait_data:
+    wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
+    wait 1 gpio STRB_GPIO               ; Waits for strobe to be low
+    jmp pin write_data                  ; Jumps depending on R/W
+read_data:
+    ; Do nothing as the host is reading
+    jmp wait_data
+write_data:
+    in pins, 11                         ; Put to ISR what's on bus
+.wrap

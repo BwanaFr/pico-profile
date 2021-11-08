@@ -42,6 +42,7 @@ void writeCommand(uint8_t cmd, uint32_t block,
     for(uint8_t i=0;i< 6;++i){
       writeData(cmdBytes[i]);
     }
+    _delay_us(100);
 }
 
 void writePartialCommand(uint8_t cmd, uint32_t block) {                      
@@ -58,23 +59,25 @@ void writePartialCommand(uint8_t cmd, uint32_t block) {
 
 static uint32_t readBlock = 0;
  
-void doRead(bool benchmark){
-  uint8_t resp = 0;
-  Serial.println("Performing read");
-  resp = performCmdHandshake();
-  if(resp != 0x1){
-    Serial.print("Profile not ready! -> ");
-    Serial.println(resp);
-    return;
-  }
-  //Write read command
-  writeCommand(0x0, readBlock++, 0x2, 0x3);
-  //Wait for confirmation
-  resp = performCmdHandshake();
-  if(resp != 2){
-    Serial.print("Unexpected Profile response (0x2) -> ");
-    Serial.println(resp);
-    return;
+void doRead(bool handshake, bool benchmark){
+  if(handshake) {
+    uint8_t resp = 0;
+    Serial.println("Performing read");
+    resp = performCmdHandshake();
+    if(resp != 0x1){
+      Serial.print("Profile not ready! -> ");
+      Serial.println(resp);
+      return;
+    }
+    //Write read command
+    writeCommand(0x0, readBlock++, 0x2, 0x3);
+    //Wait for confirmation
+    resp = performCmdHandshake();
+    if(resp != 2){
+      Serial.print("Unexpected Profile response (0x2) -> ");
+      Serial.println(resp);
+      return;
+    }
   }
   uint32_t start = millis();
   //Read complete response
@@ -93,6 +96,15 @@ void doRead(bool benchmark){
       Serial.print(response[loc++], HEX);
     }
     Serial.println();
+    
+    //20 bytes tag
+    Serial.print("Tag : ");
+    for(int i=0;i<20;++i){
+      Serial.print(" 0x");
+      Serial.print(response[loc++], HEX);
+    }
+    Serial.println();
+
     //Read 512 block data
     int count = 0;
     while(count < 512){
@@ -105,12 +117,7 @@ void doRead(bool benchmark){
       }
       Serial.println();
     }
-    Serial.print("Tag : ");
-    for(int i=0;i<20;++i){
-      Serial.print(" 0x");
-      Serial.print(response[loc++], HEX);
-    }
-    Serial.println();
+
   }
   Serial.print("Read cycle done in ");
   Serial.print(elapsed);
@@ -196,7 +203,7 @@ void loop() {
   while(Serial.available() != 0){c = Serial.read();}
   switch(c){
   case 'r':
-    doRead(false);    
+    doRead(true, false);    
     break;
   case 't':
     doSpare(true);
@@ -208,12 +215,12 @@ void loop() {
     writeCommand(0x0, 0x1, 0x20, 0x30);
     break;
   case 'd':
-    for(int i=0;i<536;++i){
+    for(int i=0;i<512;++i){
       writeData(i & 0xFF);
     }
     break;
   case 's':
-    doSpare(false);
+    doSpare(true);
   }
 
 }

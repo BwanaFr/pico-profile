@@ -3,6 +3,7 @@
 
 #include "pico/stdlib.h"
 #include "pico-profile.pio.h"
+#include "pico/sem.h"
 
 class DC42File;
 
@@ -21,6 +22,16 @@ public:
      * Push data to receive buffer
      **/
     void dataReceived();
+
+    /**
+     * Data DMA read/write done IRQ
+     **/
+    void dataDMADone();
+
+    /**
+     * Command line lowered
+     **/
+    void commandReceived();
 private:
     /**
      * Command byte sent by Apple
@@ -36,7 +47,8 @@ private:
      *  Next action done by profile
      **/
     enum ProfileState {
-        GET_COMMAND = 1,        //!< Get command
+        IDLE = 0,               //!< Initial state
+        GET_COMMAND,            //!< Get command
         READ_BLOCK,             //!< Read data block
         RCV_WRITE_DATA,         //!< Receive, write data block
         RCV_WRITE_VERIFY_DATA,  //!< Receive, write/verify data block
@@ -44,11 +56,15 @@ private:
     };
 
     static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
-    static constexpr uint DATA_SM = 0;                      //!< Data state machine number
-    static constexpr uint CMD_SM = 1;                       //!< Command handshake state machine number
+    static constexpr uint32_t RAM_BUFFER_ADDR = 0xFFFFFE;   //!< Address of the RAM buffer content
+    static constexpr uint CMD_SM = 0;                       //!< Command handshake state machine number
+    static constexpr uint DATA_READ_SM = 1;                 //!< Data read state machine number
+    static constexpr uint DATA_WRITE_SM = 2;                //!< Data send state machine number    
     static constexpr uint APPLE_ACK = 0x55;                 //!< Apple acknowledge
-    static constexpr uint BUFFER_SIZE = 512+20+4;           //!< Recept/send buffer size (512 blocks, 20 tags, 4 status)
+    static constexpr uint TX_BUFFER_SIZE = 512+20+4;        //!< TX buffer size (512 blocks, 20 tags, 4 status)
+    static constexpr uint RX_BUFFER_SIZE = 512+20;          //!< RX buffer size (512 blocks, 20 tags)
     static constexpr uint CMD_LENGTH = 6;                   //!< Number of byte in command
+
     //Status bits definition
     static constexpr uint32_t STATUS_UNSUCCESS = 0x1;               //!< Status unsuccessful
     static constexpr uint32_t STATUS_TIMEOUT = 0x4;                 //!< Status timeout
@@ -123,22 +139,29 @@ private:
     } SpareTable;
 #pragma pack(pop)
 
-    DC42File* file_;                //!< Pointer to file
-    ProfileState state_;            //!< State machine
+    DC42File* file_;                        //!< Pointer to file
+    ProfileState nextState_;                //!< Next state
+    uint pioCmdOffs_;                       //!< Cmd handshake PIO state machine offset
+    pio_sm_config pioCmdCfg_;               //!< Cmd handshake PIO configuration
 
-    uint pioCmdOffs_;               //!< Cmd handshake PIO state machine offset
-    pio_sm_config pioCmdCfg_;       //!< Cmd handshake PIO configuration
+    uint pioDataReadOffs_;                  //!< Data read (from profile to host) PIO state machine offset
+    pio_sm_config pioDataReadCfg_;          //!< Data read  (from profile to host) PIO configuration
+    int dataReadDMAChan_;                   //!< Data read DMA channel
+    
+    uint pioDataWriteOffs_;                 //!< Data write (from host to profile) PIO state machine offset
+    pio_sm_config pioDataWriteCfg_;         //!< Data write  (from host to profile) PIO configuration
+    int dataWriteDMAChan_;                  //!< Data write DMA channel
 
-    uint pioDataOffs_;              //!< Data read/write PIO state machine offset
-    pio_sm_config pioDataCfg_;      //!< Data read/write PIO configuration
+    uint8_t txBuffer_[TX_BUFFER_SIZE];      //!< Data emit buffer
+    uint16_t rxBuffer_[RX_BUFFER_SIZE];     //!< Data receive buffer
+    uint32_t received_;                     //!< Number of data received 
+    uint32_t toSend_;                       //!< Number of data to be sent
+    uint32_t status_;                       //!< 4 bytes status
+    CommandMessage lastCmd_;                //!< Last received command
+    SpareTable spareTable_;                 //!< Spare table
 
-    uint8_t buffer_[BUFFER_SIZE];   //!< Data reception buffer
-    uint32_t received_;             //!< Number of data received 
-    uint32_t toSend_;                 //!< Number of data to be sent
-    uint32_t status_;               //!< 4 bytes status
-    CommandMessage lastCmd_;        //!< Last received command
-    SpareTable spareTable_;         //!< Spare table
-
+    semaphore_t dataWriteSem_;              //!< Data write semaphore
+    semaphore_t dataReadSem_;               //!< Data read semaphore
 
     /**
      * Configures PIO resources
@@ -146,20 +169,15 @@ private:
     void configurePIO();
 
     /**
-     * Change state machine
-     */
-    void switchState(ProfileState newState);
+     * Configures DMA channels and associated interrupts
+     **/
+    void configureDMA();
 
     /**
      * Unblock the handshake state machine
      * This function will make the handshake lower the busy line
      */
     void handshakeDone();
-
-    /**
-     * Resets the data state machine
-     **/
-    void reInitDataStateMachine();
 
     /**
      * Sets status bits to true
@@ -174,40 +192,52 @@ private:
     void resetStatus(uint32_t bits = 0xFFFFFFFF);
 
     /**
-     * Handle received command
+     * Change actual state
      **/
-    void manageCommand(bool ackReceived);
+    void setState(ProfileState newState);
 
     /**
-     * Handle a read request
+     * Initializes the data reception
+     * @param count  Number of bytes to be read
      **/
-    void manageRead(bool ackReceived);
+    void prepareForWrite(uint32_t count = RX_BUFFER_SIZE);
 
     /**
-     * Handle a write request
+     * Initializes the data send
+     * @param count Number of bytes to send
      **/
-    void manageReceiveWriteData(bool ackReceived);
-    
-    /**
-     * Performs write
-     **/
-    void performWrite(bool ackReceived);
+    void prepareForRead(uint32_t count = TX_BUFFER_SIZE);
 
     /**
-     * Reads data from file
-     * and prepare buffer
+     * Abort TX/RX in progress transfers
      **/
-    void readToBuffer();
-
-    /**
-     * Dumps the buffer
-     **/
-    void dumpBuffer(bool status = true, bool data = true, bool tag = true);
+    void abortTransfer();
 
     /**
      * Updates the spare table data
      **/
     void updateSpareTable();
+
+    /**
+     * Gets and parse command
+     **/
+    void getCommand();
+
+    /**
+     * Performs read block command
+     **/
+    void readBlock();
+
+    /**
+     * Performs write block command
+     * receives the data to buffer
+     **/
+    void writeBlock();
+
+    /**
+     * Write block to file
+     **/
+    void doWrite();
 
     /**
      * Debug function to print received command

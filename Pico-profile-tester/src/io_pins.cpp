@@ -89,7 +89,6 @@ void writeData(uint8_t data, bool useStrobe)
     digitalWrite(PRW, 0);
     if(useStrobe){
         digitalWrite(PSTRB, false);
-        //delayMicroseconds(1);
         digitalWrite(PSTRB, true);
     }
 }
