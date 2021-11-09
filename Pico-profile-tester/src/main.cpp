@@ -57,7 +57,7 @@ void writePartialCommand(uint8_t cmd, uint32_t block) {
     }
 }
 
-static uint32_t readBlock = 0;
+static uint32_t readBlock = 0x0;
  
 void doRead(bool handshake, bool benchmark){
   if(handshake) {
@@ -110,10 +110,14 @@ void doRead(bool handshake, bool benchmark){
     while(count < 512){
       Serial.print(count, HEX);
       Serial.print("\t : ");
-      for(int i=0;i<32;++i){
-        Serial.print(" 0x");
-        Serial.print(response[loc++], HEX);
+      for(int i=0;i<16;++i){
+        Serial.print(" ");
+        if(response[loc]<0x10){
+          Serial.print("0");
+        }
+        Serial.print(response[loc], HEX);
         ++count;
+        ++loc;
       }
       Serial.println();
     }
@@ -179,17 +183,33 @@ void doSpare(bool partialCmd) {
     }
     uint32_t start = millis();
     //Read complete response
-    char response[20];
-    for(int i=0;i<20;++i){
-      response[i] = (char)readData();
+    uint8_t response[516];
+    for(int i=0;i<516;++i){
+      response[i] = readData();
     }
     uint32_t elapsed = millis() - start;
-    
+    int loc = 4;
+    int count = 0;
+    while(count < 512){
+      Serial.print(count, HEX);
+      Serial.print("\t : ");
+      for(int i=0;i<16;++i){
+        Serial.print(" ");        
+        if(response[loc]<0x10){
+          Serial.print("0");
+        }
+        Serial.print(response[loc], HEX);
+        ++loc;
+        ++count;
+      }
+      Serial.println();
+    }
+
     Serial.print("Read cycle done in ");
     Serial.print(elapsed);
     Serial.println("ms.");
     Serial.print("Profile name :");
-    Serial.println(&response[4]);
+    Serial.println((char*)&response[4]);
   }else{
     Serial.print("Profile not ready! -> ");
     Serial.println(resp);

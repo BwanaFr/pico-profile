@@ -147,7 +147,6 @@ void Protocol::handleProtocol() {
     if(pio_sm_get_rx_fifo_level(CMD_PIO, CMD_SM) != 0){
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
-        printf("[%d] Apple response : 0x%x\n", nextState_, resp);
         if(resp != APPLE_ACK){
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
@@ -264,10 +263,16 @@ void Protocol::updateSpareTable() {
     spareTable_.numBlocks[0] = (blockCount >> 16) & 0xFF;
     spareTable_.numBlocks[1] = (blockCount >> 8) & 0xFF;
     spareTable_.numBlocks[2] = blockCount & 0xFF;
+    /*for(int i=0;i<512;i+=16){
+        printf("\n%04x ", i);
+        for(int j=0;j<16;++j){
+            printf("%02x ", (uint8_t)(&spareTable_.name[0])[i+j]);
+        }
+    }*/
 }
 
 void Protocol::getCommand() {
-    printf("Getting command\n");
+    //printf("Getting command\n");
     for(int i=0;i<6;++i) rxBuffer_[i] = 0x0;
     prepareForWrite(6);                         //Prepare a 6 bytes transfer
     handshakeDone();                            //Lower busy
@@ -301,7 +306,7 @@ void Protocol::getCommand() {
 }
 
 void Protocol::readBlock() {
-    printf("Read block\n");
+    //printf("Read block\n");
     if (lastCmd_.blockNumber<0x00f00000)   lastCmd_.blockNumber = deinterleave5(lastCmd_.blockNumber);
     if(lastCmd_.blockNumber == SPARE_TABLE_ADDR){
         //Spare table, 
@@ -332,19 +337,16 @@ void Protocol::readBlock() {
     txBuffer_[3] = (status_>>24) & 0xFF;
     prepareForRead();                                   //Prepare buffer for DMA
     handshakeDone();                                    //Lower busy
-    printf("Waiting for transfer to be done...\n");
-    if(!sem_acquire_timeout_ms(&dataReadSem_, 100)){
+    /*if(!sem_acquire_timeout_ms(&dataReadSem_, 100)){
         printf("Data read timeout...\n");
-    }
-    printf("Read cycle done!\n");
+    }*/
     setState(ProfileState::GET_COMMAND);    
 }
 
 void Protocol::writeBlock() {
-    printf("Write block\n");    
+    //printf("Write block\n");    
     prepareForWrite();
     handshakeDone();
-    printf("Waiting for transfer to be done...\n");
     if(!sem_acquire_timeout_ms(&dataWriteSem_, 100)){
         printf("Data write timeout...\n");
         //TODO: Handle status
@@ -353,7 +355,6 @@ void Protocol::writeBlock() {
 }
 
 void Protocol::doWrite() {
-    printf("Writing to disk, block $%lx\n", lastCmd_.blockNumber);
     if (lastCmd_.blockNumber<0x00f00000) lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
     uint8_t bufByte[512];
     for(int i=0;i<20;++i){
@@ -374,7 +375,6 @@ void Protocol::doWrite() {
     if(!sem_acquire_timeout_ms(&dataReadSem_, 200)){
         printf("Write status bytes read timeout!\n");
     }
-    printf("Do write completed!\n");
     setState(ProfileState::GET_COMMAND);
 }
 
@@ -422,7 +422,7 @@ void Protocol::setState(ProfileState newState) {
 /**
  * Utility to print command details to serial
  */
-void Protocol::printCommand(const CommandMessage& msg) {    
+void Protocol::printCommand(const CommandMessage& msg) {
     switch (msg.command)
     {
     case ProfileCommand::READ:
