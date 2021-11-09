@@ -27,7 +27,6 @@ wait_data:
 ;Host data is valid 100ns before the rising edge of strobe
     wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
     wait 1 gpio STRB_GPIO               ; Waits for strobe to be low
-    ;wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
     jmp pin wait_data                   ; Loop if host is writting
 read_data:
     ; Apple read something on bus
@@ -42,6 +41,7 @@ read_data:
 wait_data:
     wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
     wait 1 gpio STRB_GPIO               ; Waits for strobe to be low
+    wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
     jmp pin write_data                  ; Jumps depending on R/W
 read_data:
     ; Do nothing as the host is reading
