@@ -58,7 +58,19 @@ void writePartialCommand(uint8_t cmd, uint32_t block) {
 }
 
 static uint32_t readBlock = 0x0;
- 
+
+bool checkParityBit(uint8_t data, bool parity)
+{
+    int count = 0;
+    for(int i=0;i<8;++i){
+        if((data>>i) & 0x1){
+            ++count;
+        }
+    }
+    bool even = ((count % 2) == 0);
+    return even == parity;
+}
+
 void doRead(bool handshake, bool benchmark){
   if(handshake) {
     uint8_t resp = 0;
@@ -83,7 +95,11 @@ void doRead(bool handshake, bool benchmark){
   //Read complete response
   uint8_t response[536];
   for(int i=0;i<536;++i){
-    response[i] = readData();
+    bool parity = false;
+    response[i] = readDataParity(parity);
+    if(!checkParityBit(response[i], parity)){
+      Serial.println("Parity error!");
+    }
   }
   uint32_t elapsed = millis() - start;
 
@@ -241,6 +257,16 @@ void loop() {
     break;
   case 's':
     doSpare(true);
+    break;
+  case 'p':
+    Serial.println("Checking parity");
+    for(uint8_t i=0;i<255;++i){
+      writeData(i, false);
+      if(!checkParity(i)){
+        Serial.print("Parity error for data 0x");
+        Serial.println(i);
+      }
+    }
   }
 
 }

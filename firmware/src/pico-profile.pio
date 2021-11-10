@@ -23,15 +23,12 @@ jmp !x loop             side 1      ; Wait for X to be != 0
 .program pico_profile_data_read
 
 .wrap_target
-wait_data:
-;Host data is valid 100ns before the rising edge of strobe
-    wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
-    wait 1 gpio STRB_GPIO               ; Waits for strobe to be low
-    jmp pin wait_data                   ; Loop if host is writting
 read_data:
-    ; Apple read something on bus
+    wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
     out pins, 8                         ; Sets output to what it's in OSR
-    jmp wait_data
+wait_data:
+    wait 1 gpio STRB_GPIO               ; Waits for strobe to be low (data taken)
+    ;jmp pin wait_data                   ; Loop if host is writting
 .wrap
 
 ; Program to write data (host to profile)

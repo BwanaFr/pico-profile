@@ -72,12 +72,30 @@ uint8_t readData(bool useStrobe)
     digitalWrite(PRW, 1);
     //Set port direction to read
     setPortDir(false);
-    if(useStrobe){
-        digitalWrite(PSTRB, false);
-        //delayMicroseconds();
-        digitalWrite(PSTRB, true);
-    }
+    
     uint8_t value = readBus();
+    if(useStrobe){
+        //Signal data-taken
+        digitalWrite(PSTRB, false);    
+        digitalWrite(PSTRB, true);
+    }    
+    return value;
+}
+
+uint8_t readDataParity(bool& parity, bool useStrobe)
+{
+    //Set direction as read
+    digitalWrite(PRW, 1);
+    //Set port direction to read
+    setPortDir(false);
+    
+    uint8_t value = readBus();
+    parity = digitalRead(PPARITY);
+    if(useStrobe){
+        //Signal data-taken
+        digitalWrite(PSTRB, false);    
+        digitalWrite(PSTRB, true);
+    }    
     return value;
 }
 
@@ -91,4 +109,17 @@ void writeData(uint8_t data, bool useStrobe)
         digitalWrite(PSTRB, false);
         digitalWrite(PSTRB, true);
     }
+}
+
+bool checkParity(uint8_t data)
+{
+    bool parity = digitalRead(PPARITY);
+    int count = 0;
+    for(int i=0;i<8;++i){
+        if((data>>i) & 0x1){
+            ++count;
+        }
+    }
+    bool even = ((count % 2) == 0);
+    return even == parity;
 }

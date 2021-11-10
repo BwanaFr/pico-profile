@@ -40,14 +40,30 @@ void configureIO();
 
 /**
  * Reads data from profile
+ * @param useStrobe If true raise the strobe line
  * @return data read from bus
  */
 uint8_t readData(bool useStrobe = true);
+
+/**
+ * Reads data and parity bit from profile
+ * @param parity Parity bit (true if even)
+ * @param useStrobe If true raise the strobe line
+ * @return  data read from bus
+ */
+uint8_t readDataParity(bool& parity, bool useStrobe = true);
 
 /**
  * Writes data to profile
  * @param data Data to be written
  */
 void writeData(uint8_t data, bool useStrobe = true);
+
+/**
+ * Checks the parity bit
+ * @param data Data to be parity-check
+ * @return True if parity matches
+ **/
+bool checkParity(uint8_t data);
 
 #endif
