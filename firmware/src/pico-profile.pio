@@ -28,7 +28,6 @@ read_data:
     out pins, 8                         ; Sets output to what it's in OSR
 wait_data:
     wait 1 gpio STRB_GPIO               ; Waits for strobe to be low (data taken)
-    ;jmp pin wait_data                   ; Loop if host is writting
 .wrap
 
 ; Program to write data (host to profile)
@@ -37,12 +36,11 @@ wait_data:
 .wrap_target
 wait_data:
     wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
-    wait 1 gpio STRB_GPIO               ; Waits for strobe to be low
-    wait 0 gpio STRB_GPIO               ; Waits for strobe to be high
-    jmp pin write_data                  ; Jumps depending on R/W
-read_data:
+    wait 1 gpio STRB_GPIO               ; Waits for strobe to be low (data ready)
+;    jmp pin write_data                 ; Jumps depending on R/W
+;read_data:
     ; Do nothing as the host is reading
-    jmp wait_data
-write_data:
+;    jmp wait_data
+;write_data:
     in pins, 11                         ; Put to ISR what's on bus
 .wrap

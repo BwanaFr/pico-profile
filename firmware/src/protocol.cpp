@@ -362,7 +362,7 @@ void Protocol::doWrite() {
     }
     file_->writeTag(lastCmd_.blockNumber, bufByte);
     for(int i=0;i<512;++i){
-        bufByte[i] = RX_TO_BYTE(i);
+        bufByte[i] = RX_TO_BYTE(i+20);
     }
     file_->writeBlock(lastCmd_.blockNumber, bufByte);
     txBuffer_[0] = status_ & 0xFF;

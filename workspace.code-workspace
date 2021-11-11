@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "firmware"
+		},
+		{
+			"path": "Pico-profile-tester"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"random": "cpp"
+		}
+	}
+}
