@@ -127,8 +127,8 @@ private:
         uint8_t spareBlocksAllocated;   //!< Number of spare blocks allocated
         uint8_t badBlocksAllocated;     //!< Number of bad blocks currently allocated
         uint8_t spareTable[506];        //!< Spare table the numbers of the spared blocks and the bad blocks are listed (3 bytes per block number), with a $FFFFFF at the end of each list.
-        inline SpareTable() : name({'P','R','O','F','I','L','E',' ',' ',' ',' ',' ',0x0}),
-            deviceNum({0x0, 0x0, 0x0}), fwVersion(0x9803), numBlocks({0x0,0x0,0x0}),
+        inline SpareTable() : name{'P','R','O','F','I','L','E',' ',' ',' ',' ',' ',0x0},
+            deviceNum{0x0, 0x0, 0x0}, fwVersion(0x9803), numBlocks{0x0,0x0,0x0},
             bytesPerSector(0x1402), spareBlocksCount(32), spareBlocksAllocated(0), badBlocksAllocated(0)
         {
             spareTable[0] = spareTable[1] = spareTable[2] = 0xFF;
