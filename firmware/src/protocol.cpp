@@ -32,7 +32,7 @@ void __isr data_dma_done() {
 
 Protocol::Protocol(DC42File* file) :
     file_(file),
-    nextState_(ProfileState::GET_COMMAND),
+    state_(ProfileState::IDLE),
     dataReadDMAChan_(-1), dataWriteDMAChan_(-1),
     received_(0), toSend_(0), status_(0)
 {
@@ -46,8 +46,6 @@ Protocol::Protocol(DC42File* file) :
     configureDMA();
     //Updates the spare table depending on file
     updateSpareTable();
-    //Sets the state machine to ready to accept commands
-    setState(nextState_);
 }
 
 Protocol::~Protocol() {
@@ -143,7 +141,67 @@ void Protocol::configureDMA() {
     irq_set_enabled(DMA_IRQ_1, true);                          //Enable IRQ
 }
 
+void Protocol::prepareNextState() {
+    switch(state_) {
+        case ProfileState::GET_COMMAND:
+            //Parse command
+            parseCommand();            
+            break;
+        case ProfileState::READ_BLOCK:
+            //After read, go back to get command state
+            setState(ProfileState::GET_COMMAND);
+            break;
+        case ProfileState::RCV_WRITE_DATA:
+        case ProfileState::RCV_WRITE_VERIFY_DATA:
+            //After write to RAM, write data to SD
+            setState(ProfileState::DO_WRITE);
+            break;
+        default:
+            //Default state (IDLE, in fact)
+            setState(ProfileState::GET_COMMAND);
+            break;
+    }
+}
+
+void Protocol::executeCurrentState() {
+    switch(state_) {
+        case ProfileState::GET_COMMAND:
+            for(int i=0;i<6;++i) rxBuffer_[i] = 0x0;
+            prepareForWrite();                          //Prepare a 6 bytes transfer
+            handshakeDone();                            //Lower busy
+            break;
+        case ProfileState::READ_BLOCK:
+            //Reads data from SD and put it to RAM
+            readBlock();
+            break;
+        case ProfileState::RCV_WRITE_DATA:
+        case ProfileState::RCV_WRITE_VERIFY_DATA:
+            //Prepare to receive data from host
+            prepareForWrite();
+            handshakeDone();
+            break;
+        case ProfileState::DO_WRITE:
+            //Write RAM to disk
+            doWrite();
+            break;
+        default:
+            printf("executeCurrentState : Unexpected state : %x", state_);
+            handshakeDone();
+            break;
+    }
+}
+
 void Protocol::handleProtocol() {
+    if(cmdReceived_){
+        cmdReceived_ = false;
+        //Cancel all pending DMA transfers
+        abortTransfer();
+        //Command received prepare for handling next state
+        prepareNextState();
+        //Reset status
+        status_ = 0;
+    }
+
     if(pio_sm_get_rx_fifo_level(CMD_PIO, CMD_SM) != 0){
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
@@ -151,29 +209,11 @@ void Protocol::handleProtocol() {
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
             handshakeDone();
-            setState(ProfileState::GET_COMMAND);
+            setState(ProfileState::IDLE);
             return;
         }else{
             resetStatus(STATUS_55_NOT_RECEIVED);
-            switch(nextState_) {
-                case ProfileState::GET_COMMAND:
-                    getCommand();
-                    break;
-                case ProfileState::READ_BLOCK:
-                    readBlock();
-                    break;
-                case ProfileState::RCV_WRITE_DATA:
-                case ProfileState::RCV_WRITE_VERIFY_DATA:
-                    writeBlock();
-                    break;
-                case ProfileState::DO_WRITE:
-                    doWrite();
-                    break;
-                default:
-                    printf("Unsupported state : %u\n", nextState_);
-                    setState(ProfileState::GET_COMMAND);
-                    break;
-            }
+            executeCurrentState();
         }
     }
 }
@@ -271,38 +311,28 @@ void Protocol::updateSpareTable() {
     }*/
 }
 
-void Protocol::getCommand() {
-    //printf("Getting command\n");
-    for(int i=0;i<6;++i) rxBuffer_[i] = 0x0;
-    prepareForWrite(6);                         //Prepare a 6 bytes transfer
-    handshakeDone();                            //Lower busy
-    //Wait for data bytes to be transfered (within 100ms)
-    if(!sem_acquire_timeout_ms(&dataWriteSem_, 100)){
-        printf("Command bytes receive timeout!\n");
-        setState(ProfileState::GET_COMMAND);
-    }else{
-        //Build the command 
-        lastCmd_.command = static_cast<ProfileCommand>(RX_TO_BYTE(0));
-        lastCmd_.blockNumber = RX_TO_BYTE(1) << 16 | RX_TO_BYTE(2) << 8 | RX_TO_BYTE(3);
-        lastCmd_.retryCount = RX_TO_BYTE(4);
-        lastCmd_.sparesThreshold = RX_TO_BYTE(5);        
-        switch(lastCmd_.command){
-            case ProfileCommand::READ:
-                setState(ProfileState::READ_BLOCK);
-                break;
-            case ProfileCommand::WRITE:
-                setState(ProfileState::RCV_WRITE_DATA);
-                break;
-            case ProfileCommand::WRITE_VERIFY:
-                setState(ProfileState::RCV_WRITE_VERIFY_DATA);
-                break;
-            default:
-                printf("Unknown command : %x\n", nextState_);
-                setState(ProfileState::GET_COMMAND);
-                break;
-        }
-        printCommand(lastCmd_);
+void Protocol::parseCommand() {
+    //Build the command with what is received
+    lastCmd_.command = static_cast<ProfileCommand>(RX_TO_BYTE(0));
+    lastCmd_.blockNumber = RX_TO_BYTE(1) << 16 | RX_TO_BYTE(2) << 8 | RX_TO_BYTE(3);
+    lastCmd_.retryCount = RX_TO_BYTE(4);
+    lastCmd_.sparesThreshold = RX_TO_BYTE(5);        
+    switch(lastCmd_.command){
+        case ProfileCommand::READ:
+            setState(ProfileState::READ_BLOCK);
+            break;
+        case ProfileCommand::WRITE:
+            setState(ProfileState::RCV_WRITE_DATA);
+            break;
+        case ProfileCommand::WRITE_VERIFY:
+            setState(ProfileState::RCV_WRITE_VERIFY_DATA);
+            break;
+        default:
+            printf("Unknown command : %x\n", lastCmd_.command);
+            setState(ProfileState::IDLE);
+            break;
     }
+    printCommand(lastCmd_);    
 }
 
 void Protocol::readBlock() {
@@ -315,12 +345,11 @@ void Protocol::readBlock() {
     }else if(lastCmd_.blockNumber == RAM_BUFFER_ADDR){
         //Copy from rx to tx
         for(int i=0;i<512+20;++i){
-            txBuffer_[i+4] = RX_TO_BYTE(rxBuffer_[i]);
+            txBuffer_[i+4] = RX_TO_BYTE(i);
         }
         status_ = 0;
     }else{
         //Read to buffer + 4 to keep space for status bytes
-        //TODO: Seems to start with tags, to check
         if(!file_->readTag(lastCmd_.blockNumber, txBuffer_ + 4)) {
             setStatus(STATUS_UNSUCCESS);
         }
@@ -337,34 +366,27 @@ void Protocol::readBlock() {
     txBuffer_[3] = (status_>>24) & 0xFF;
     prepareForRead();                                   //Prepare buffer for DMA
     handshakeDone();                                    //Lower busy
-    /*if(!sem_acquire_timeout_ms(&dataReadSem_, 100)){
-        printf("Data read timeout...\n");
-    }*/
-    setState(ProfileState::GET_COMMAND);    
-}
-
-void Protocol::writeBlock() {
-    //printf("Write block\n");    
-    prepareForWrite();
-    handshakeDone();
-    if(!sem_acquire_timeout_ms(&dataWriteSem_, 100)){
-        printf("Data write timeout...\n");
-        //TODO: Handle status
-    }
-    setState(ProfileState::DO_WRITE);
 }
 
 void Protocol::doWrite() {
-    if (lastCmd_.blockNumber<0x00f00000) lastCmd_.blockNumber=deinterleave5(lastCmd_.blockNumber);
-    uint8_t bufByte[512];
-    for(int i=0;i<20;++i){
-        bufByte[i] = RX_TO_BYTE(i);
+    if (lastCmd_.blockNumber<0x00f00000) lastCmd_.blockNumber = deinterleave5(lastCmd_.blockNumber);
+    if((lastCmd_.blockNumber != SPARE_TABLE_ADDR) &&
+        (lastCmd_.blockNumber != RAM_BUFFER_ADDR)){
+        //Do not write spare table or RAM to disk!            
+        uint8_t bufByte[512];
+        for(int i=0;i<20;++i){
+            bufByte[i] = RX_TO_BYTE(i);
+        }
+        file_->writeTag(lastCmd_.blockNumber, bufByte);
+        for(int i=0;i<512;++i){
+            bufByte[i] = RX_TO_BYTE(i+20);
+        }
+        file_->writeBlock(lastCmd_.blockNumber, bufByte);
     }
-    file_->writeTag(lastCmd_.blockNumber, bufByte);
-    for(int i=0;i<512;++i){
-        bufByte[i] = RX_TO_BYTE(i+20);
+    if(pio_sm_get_rx_fifo_level(DATA_PIO, DATA_WRITE_SM) != 0){
+        //Data still available on PIO (despite of the 532 byte DMA transfer)
+        setStatus(STATUS_TOO_MUCH_DATA);
     }
-    file_->writeBlock(lastCmd_.blockNumber, bufByte);
     txBuffer_[0] = status_ & 0xFF;
     txBuffer_[1] = (status_>>8) & 0xFF;
     txBuffer_[2] = (status_>>16) & 0xFF;
@@ -372,10 +394,9 @@ void Protocol::doWrite() {
     prepareForRead(4);
     handshakeDone();
     //Send status bytes
-    if(!sem_acquire_timeout_ms(&dataReadSem_, 200)){
+    if(!sem_acquire_timeout_ms(&dataReadSem_, 50)){
         printf("Write status bytes read timeout!\n");
     }
-    setState(ProfileState::GET_COMMAND);
 }
 
 void Protocol::handshakeDone() {
@@ -397,8 +418,7 @@ void Protocol::dataDMADone() {
 
 void Protocol::commandReceived() {
     pio_interrupt_clear(CMD_PIO, 0);
-    //Cancel all pending DMA transfers
-    abortTransfer();
+    cmdReceived_ = true;
 }
 
 void Protocol::setStatus(uint32_t bits) {
@@ -410,13 +430,14 @@ void Protocol::resetStatus(uint32_t bits) {
 }
 
 void Protocol::setState(ProfileState newState) {
-    if(newState == ProfileState::GET_COMMAND){
+    if(newState == ProfileState::IDLE){
+        //IDLE command, reset the PIO state machine
         pio_sm_init(CMD_PIO, CMD_SM, pioCmdOffs_, &pioCmdCfg_);
         pio_sm_clear_fifos(CMD_PIO, CMD_SM);
         pio_sm_set_enabled(CMD_PIO, CMD_SM, true);
     }
     pio_sm_put_blocking(CMD_PIO, CMD_SM, newState);
-    nextState_ = newState;
+    state_ = newState;
 }
 
 /**

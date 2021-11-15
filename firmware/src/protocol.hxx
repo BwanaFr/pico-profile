@@ -56,16 +56,6 @@ private:
         DO_WRITE=6,             //!< Do actual write or write/verify on disk
     };
 
-    /**
-     * Command handshake state
-     **/
-    enum CommandState {
-        WAIT_CMD = 0,           //!< Waits for CMD to be lowered (idle)
-        CMD_RECEIVED,           //!< Command received
-        WAIT_x55,               //!< Waits for 0x55 confirmation
-        CMD_DONE,               //!< Command done, lower the busy line
-    };
-
     static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
     static constexpr uint32_t RAM_BUFFER_ADDR = 0xFFFFFE;   //!< Address of the RAM buffer content
     static constexpr uint CMD_SM = 0;                       //!< Command handshake state machine number
@@ -152,7 +142,7 @@ private:
 #pragma pack(pop)
 
     DC42File* file_;                        //!< Pointer to file
-    ProfileState nextState_;                //!< Next state
+    ProfileState state_;                    //!< Profile state
     uint pioCmdOffs_;                       //!< Cmd handshake PIO state machine offset
     pio_sm_config pioCmdCfg_;               //!< Cmd handshake PIO configuration
 
@@ -169,6 +159,7 @@ private:
     uint32_t received_;                     //!< Number of data received 
     uint32_t toSend_;                       //!< Number of data to be sent
     uint32_t status_;                       //!< 4 bytes status
+    bool cmdReceived_;                      //!< Command received flag
     CommandMessage lastCmd_;                //!< Last received command
     SpareTable spareTable_;                 //!< Spare table
 
@@ -209,6 +200,17 @@ private:
     void setState(ProfileState newState);
 
     /**
+     * Prepare the state machine
+     * for next state
+     **/
+    void prepareNextState();
+
+    /**
+     * Executes current state machine
+     **/
+    void executeCurrentState();
+
+    /**
      * Initializes the data reception
      * @param count  Number of bytes to be read
      **/
@@ -231,20 +233,14 @@ private:
     void updateSpareTable();
 
     /**
-     * Gets and parse command
+     * Parse command
      **/
-    void getCommand();
+    void parseCommand();
 
     /**
      * Performs read block command
      **/
     void readBlock();
-
-    /**
-     * Performs write block command
-     * receives the data to buffer
-     **/
-    void writeBlock();
 
     /**
      * Write block to file

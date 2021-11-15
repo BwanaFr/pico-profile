@@ -71,7 +71,7 @@ bool checkParityBit(uint8_t data, bool parity)
     return even == parity;
 }
 
-void doRead(bool handshake, bool benchmark){
+void doRead(uint32_t block, bool handshake, bool parity, bool benchmark){
   if(handshake) {
     uint8_t resp = 0;
     Serial.println("Performing read");
@@ -82,7 +82,7 @@ void doRead(bool handshake, bool benchmark){
       return;
     }
     //Write read command
-    writeCommand(0x0, readBlock++, 0x2, 0x3);
+    writeCommand(0x0, block, 0x2, 0x3);
     //Wait for confirmation
     resp = performCmdHandshake();
     if(resp != 2){
@@ -94,11 +94,17 @@ void doRead(bool handshake, bool benchmark){
   uint32_t start = millis();
   //Read complete response
   uint8_t response[536];
-  for(int i=0;i<536;++i){
-    bool parity = false;
-    response[i] = readDataParity(parity);
-    if(!checkParityBit(response[i], parity)){
-      Serial.println("Parity error!");
+  if(parity) {
+    for(int i=0;i<536;++i){
+      bool parity = false;
+      response[i] = readDataParity(parity);
+      if(!checkParityBit(response[i], parity)){
+        Serial.println("Parity error!");
+      }
+    }
+  }else {
+    for(int i=0;i<536;++i){
+      response[i] = readData();
     }
   }
   uint32_t elapsed = millis() - start;
@@ -141,10 +147,10 @@ void doRead(bool handshake, bool benchmark){
   }
   Serial.print("Read cycle done in ");
   Serial.print(elapsed);
-  Serial.println("ms.");  
+  Serial.println("ms.");
 }
 
-void doWrite() {
+void doWrite(uint32_t block) {
   uint8_t resp = 0;
   Serial.println("Performing write");
   resp = performCmdHandshake();
@@ -154,7 +160,7 @@ void doWrite() {
     return;
   }
   //Write write command
-  writeCommand(0x1, readBlock, 0x2, 0x3);
+  writeCommand(0x1, block, 0x2, 0x3);
   resp = performCmdHandshake();
   if(resp != 0x3) {
     Serial.print("Profile write not ack (0x3) -> ");
@@ -199,14 +205,14 @@ void doSpare(bool partialCmd) {
     }
     uint32_t start = millis();
     //Read complete response
-    uint8_t response[516];
-    for(int i=0;i<516;++i){
+    uint8_t response[32];
+    for(int i=0;i<32;++i){
       response[i] = readData();
     }
     uint32_t elapsed = millis() - start;
     int loc = 4;
     int count = 0;
-    while(count < 512){
+    while(count < 32){
       Serial.print(count, HEX);
       Serial.print("\t : ");
       for(int i=0;i<16;++i){
@@ -232,6 +238,13 @@ void doSpare(bool partialCmd) {
   } 
 }
 
+void dumpRAM() {
+  Serial.println("Writing RAM");
+  doWrite(0xfffffe);
+  Serial.println("Reading RAM");
+  doRead(0xfffffe, true, false, false);    
+}
+
 void loop() {
   Serial.println("Hit a key to start reading");
   while(Serial.available() == 0){}
@@ -239,21 +252,19 @@ void loop() {
   while(Serial.available() != 0){c = Serial.read();}
   switch(c){
   case 'r':
-    doRead(true, false);    
+    doRead(readBlock++, true, false, true);    
     break;
   case 't':
     doSpare(true);
     break;
   case 'w':
-    doWrite();
+    doWrite(readBlock);
     break;
   case 'c':
     writeCommand(0x0, 0x1, 0x20, 0x30);
     break;
   case 'd':
-    for(int i=0;i<512;++i){
-      writeData(i & 0xFF);
-    }
+    dumpRAM();
     break;
   case 's':
     doSpare(true);
