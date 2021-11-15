@@ -147,17 +147,14 @@ void Protocol::prepareNextState() {
             //Parse command
             parseCommand();            
             break;
-        case ProfileState::READ_BLOCK:
-            //After read, go back to get command state
-            setState(ProfileState::GET_COMMAND);
-            break;
         case ProfileState::RCV_WRITE_DATA:
         case ProfileState::RCV_WRITE_VERIFY_DATA:
             //After write to RAM, write data to SD
             setState(ProfileState::DO_WRITE);
             break;
         default:
-            //Default state (IDLE, in fact)
+            //Default state
+            //After IDLE, READ, DO_WRITE
             setState(ProfileState::GET_COMMAND);
             break;
     }
@@ -166,8 +163,8 @@ void Protocol::prepareNextState() {
 void Protocol::executeCurrentState() {
     switch(state_) {
         case ProfileState::GET_COMMAND:
-            for(int i=0;i<6;++i) rxBuffer_[i] = 0x0;
-            prepareForWrite();                          //Prepare a 6 bytes transfer
+            for(int i=0;i<6;++i) cmdRxBuffer_[i] = 0x0;
+            prepareForWrite(true);                      //Prepare a up to 6 bytes transfer
             handshakeDone();                            //Lower busy
             break;
         case ProfileState::READ_BLOCK:
@@ -219,7 +216,7 @@ void Protocol::handleProtocol() {
 }
 
 
-void Protocol::prepareForWrite(uint32_t count) {
+void Protocol::prepareForWrite(bool cmdBuffer) {
     //Reset receive state machine
     pio_sm_init(DATA_PIO, DATA_WRITE_SM, pioDataWriteOffs_, &pioDataWriteCfg_);
     pio_sm_clear_fifos(DATA_PIO, DATA_WRITE_SM);
@@ -237,14 +234,25 @@ void Protocol::prepareForWrite(uint32_t count) {
     channel_config_set_write_increment(&c, true);
     channel_config_set_dreq(&c, pio_get_dreq(DATA_PIO, DATA_WRITE_SM, false));
     channel_config_set_transfer_data_size(&c, DMA_SIZE_16); //Use 16 bits transfers are we read up to GPIO26
-    dma_channel_configure(
-        dataWriteDMAChan_,
-        &c,
-        rxBuffer_,                          // Destination pointer
-        &DATA_PIO->rxf[DATA_WRITE_SM],      // Source pointer
-        count,                              // Number of transfers
-        true                                // Start
-    );
+    if(cmdBuffer){
+        dma_channel_configure(
+            dataWriteDMAChan_,
+            &c,
+            cmdRxBuffer_,                       // Destination pointer
+            &DATA_PIO->rxf[DATA_WRITE_SM],      // Source pointer
+            CMD_RX_BUFFER_SIZE,                 // Number of transfers
+            true                                // Start
+        );
+    }else{        
+        dma_channel_configure(
+            dataWriteDMAChan_,
+            &c,
+            rxBuffer_,                          // Destination pointer
+            &DATA_PIO->rxf[DATA_WRITE_SM],      // Source pointer
+            RX_BUFFER_SIZE,                     // Number of transfers
+            true                                // Start
+        );
+    }
 }
 
 void Protocol::prepareForRead(uint32_t count) {
@@ -303,20 +311,14 @@ void Protocol::updateSpareTable() {
     spareTable_.numBlocks[0] = (blockCount >> 16) & 0xFF;
     spareTable_.numBlocks[1] = (blockCount >> 8) & 0xFF;
     spareTable_.numBlocks[2] = blockCount & 0xFF;
-    /*for(int i=0;i<512;i+=16){
-        printf("\n%04x ", i);
-        for(int j=0;j<16;++j){
-            printf("%02x ", (uint8_t)(&spareTable_.name[0])[i+j]);
-        }
-    }*/
 }
 
 void Protocol::parseCommand() {
     //Build the command with what is received
-    lastCmd_.command = static_cast<ProfileCommand>(RX_TO_BYTE(0));
-    lastCmd_.blockNumber = RX_TO_BYTE(1) << 16 | RX_TO_BYTE(2) << 8 | RX_TO_BYTE(3);
-    lastCmd_.retryCount = RX_TO_BYTE(4);
-    lastCmd_.sparesThreshold = RX_TO_BYTE(5);        
+    lastCmd_.command = static_cast<ProfileCommand>(gpioToByte(cmdRxBuffer_[0]));
+    lastCmd_.blockNumber = gpioToByte(cmdRxBuffer_[1]) << 16 | gpioToByte(cmdRxBuffer_[2]) << 8 | gpioToByte(cmdRxBuffer_[3]);
+    lastCmd_.retryCount = gpioToByte(cmdRxBuffer_[4]);
+    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);        
     switch(lastCmd_.command){
         case ProfileCommand::READ:
             setState(ProfileState::READ_BLOCK);

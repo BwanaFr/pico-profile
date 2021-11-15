@@ -64,6 +64,7 @@ private:
     static constexpr uint APPLE_ACK = 0x55;                 //!< Apple acknowledge
     static constexpr uint TX_BUFFER_SIZE = 512+20+4;        //!< TX buffer size (512 blocks, 20 tags, 4 status)
     static constexpr uint RX_BUFFER_SIZE = 512+20;          //!< RX buffer size (512 blocks, 20 tags)
+    static constexpr uint CMD_RX_BUFFER_SIZE = 6;           //!< Command RX buffer size (6)
     static constexpr uint CMD_LENGTH = 6;                   //!< Number of byte in command
 
     //Status bits definition
@@ -141,30 +142,31 @@ private:
     } SpareTable;
 #pragma pack(pop)
 
-    DC42File* file_;                        //!< Pointer to file
-    ProfileState state_;                    //!< Profile state
-    uint pioCmdOffs_;                       //!< Cmd handshake PIO state machine offset
-    pio_sm_config pioCmdCfg_;               //!< Cmd handshake PIO configuration
+    DC42File* file_;                            //!< Pointer to file
+    ProfileState state_;                        //!< Profile state
+    uint pioCmdOffs_;                           //!< Cmd handshake PIO state machine offset
+    pio_sm_config pioCmdCfg_;                   //!< Cmd handshake PIO configuration
 
-    uint pioDataReadOffs_;                  //!< Data read (from profile to host) PIO state machine offset
-    pio_sm_config pioDataReadCfg_;          //!< Data read  (from profile to host) PIO configuration
-    int dataReadDMAChan_;                   //!< Data read DMA channel
+    uint pioDataReadOffs_;                      //!< Data read (from profile to host) PIO state machine offset
+    pio_sm_config pioDataReadCfg_;              //!< Data read  (from profile to host) PIO configuration
+    int dataReadDMAChan_;                       //!< Data read DMA channel
     
-    uint pioDataWriteOffs_;                 //!< Data write (from host to profile) PIO state machine offset
-    pio_sm_config pioDataWriteCfg_;         //!< Data write  (from host to profile) PIO configuration
-    int dataWriteDMAChan_;                  //!< Data write DMA channel
+    uint pioDataWriteOffs_;                     //!< Data write (from host to profile) PIO state machine offset
+    pio_sm_config pioDataWriteCfg_;             //!< Data write  (from host to profile) PIO configuration
+    int dataWriteDMAChan_;                      //!< Data write DMA channel
 
-    uint8_t txBuffer_[TX_BUFFER_SIZE];      //!< Data emit buffer
-    uint16_t rxBuffer_[RX_BUFFER_SIZE];     //!< Data receive buffer
-    uint32_t received_;                     //!< Number of data received 
-    uint32_t toSend_;                       //!< Number of data to be sent
-    uint32_t status_;                       //!< 4 bytes status
-    bool cmdReceived_;                      //!< Command received flag
-    CommandMessage lastCmd_;                //!< Last received command
-    SpareTable spareTable_;                 //!< Spare table
+    uint8_t txBuffer_[TX_BUFFER_SIZE];          //!< Data emit buffer
+    uint16_t rxBuffer_[RX_BUFFER_SIZE];         //!< Data receive buffer
+    uint16_t cmdRxBuffer_[CMD_RX_BUFFER_SIZE];  //!< Data receive buffer
+    uint32_t received_;                         //!< Number of data received 
+    uint32_t toSend_;                           //!< Number of data to be sent
+    uint32_t status_;                           //!< 4 bytes status
+    bool cmdReceived_;                          //!< Command received flag
+    CommandMessage lastCmd_;                    //!< Last received command
+    SpareTable spareTable_;                     //!< Spare table
 
-    semaphore_t dataWriteSem_;              //!< Data write semaphore
-    semaphore_t dataReadSem_;               //!< Data read semaphore
+    semaphore_t dataWriteSem_;                  //!< Data write semaphore
+    semaphore_t dataReadSem_;                   //!< Data read semaphore
 
     /**
      * Configures PIO resources
@@ -212,9 +214,9 @@ private:
 
     /**
      * Initializes the data reception
-     * @param count  Number of bytes to be read
+     * @param cmdBuffer  Targets the command buffer
      **/
-    void prepareForWrite(uint32_t count = RX_BUFFER_SIZE);
+    void prepareForWrite(bool cmdBuffer = false);
 
     /**
      * Initializes the data send
