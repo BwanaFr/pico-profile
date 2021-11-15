@@ -15,7 +15,7 @@ public:
 
     /**
      * Non-blocking function for handling protocol
-     */
+     **/
     void handleProtocol();
 
     /**
@@ -32,10 +32,11 @@ public:
      * Command line lowered
      **/
     void commandReceived();
+
 private:
     /**
      * Command byte sent by Apple
-     */
+     **/
     enum ProfileCommand {
         READ = 0,               //!< Read block
         WRITE,                  //!< Write block
@@ -53,6 +54,16 @@ private:
         RCV_WRITE_DATA,         //!< Receive, write data block
         RCV_WRITE_VERIFY_DATA,  //!< Receive, write/verify data block
         DO_WRITE=6,             //!< Do actual write or write/verify on disk
+    };
+
+    /**
+     * Command handshake state
+     **/
+    enum CommandState {
+        WAIT_CMD = 0,           //!< Waits for CMD to be lowered (idle)
+        CMD_RECEIVED,           //!< Command received
+        WAIT_x55,               //!< Waits for 0x55 confirmation
+        CMD_DONE,               //!< Command done, lower the busy line
     };
 
     static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
@@ -93,7 +104,7 @@ private:
     static constexpr uint32_t OD6_PIN = 6;          //D6 GPIO (out)
     static constexpr uint32_t OD7_PIN = 7;          //D7 GPIO (out)
     static constexpr uint32_t BSY_PIN = 8;          //Busy GPIO (out)
-    static constexpr uint32_t RW_PIN = 9;           //R/W GPIO (in)
+    static constexpr uint32_t RW_PIN = 9;           //R/W GPIO (in, not used)
     static constexpr uint32_t ID0_PIN = 16;         //D0 GPIO (in)
     static constexpr uint32_t ID1_PIN = 17;         //D1 GPIO (in)
     static constexpr uint32_t ID2_PIN = 18;         //D2 GPIO (in)
@@ -116,6 +127,7 @@ private:
         inline CommandMessage() : command(READ), blockNumber(0), retryCount(0), sparesThreshold(0){};
     } CommandMessage;
 
+//Align this structure to 1 byte
 #pragma pack(push, 1) 
     typedef struct SpareTable {
         char name[13];                  //!< Device name, should be PROFILE
