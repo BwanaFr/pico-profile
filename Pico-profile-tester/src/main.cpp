@@ -13,8 +13,10 @@ uint8_t i = 0;
 
 uint8_t performCmdHandshake(){
   Serial.print("Handshaking : ");
-    //Lower CMD
-  digitalWrite(PCMD, false);
+  while(!digitalRead(PBSY)){}
+  //Put bus to read and lower CMD
+  readData(false);
+  digitalWrite(PCMD, false);  
 //  Serial.println("CMD low, wait for busy");
   while(digitalRead(PBSY)){}
 //  Serial.print("Busy low, reading data : 0x");
@@ -42,7 +44,6 @@ void writeCommand(uint8_t cmd, uint32_t block,
     for(uint8_t i=0;i< 6;++i){
       writeData(cmdBytes[i]);
     }
-    _delay_us(100);
 }
 
 void writePartialCommand(uint8_t cmd, uint32_t block) {                      
@@ -238,11 +239,46 @@ void doSpare(bool partialCmd) {
   } 
 }
 
-void dumpRAM() {
-  Serial.println("Writing RAM");
-  doWrite(0xfffffe);
-  Serial.println("Reading RAM");
-  doRead(0xfffffe, true, false, false);    
+static uint32_t ramData = 0x0;
+void doWriteRAM() {
+  uint8_t resp = 0;
+  Serial.println("Performing write");
+  resp = performCmdHandshake();
+  if(resp != 0x1) {
+    Serial.print("Profile not ready -> ");
+    Serial.println(resp);
+    return;
+  }
+
+  Serial.println("Writing command");
+  writePartialCommand(0x1, 0xFFFFFE);
+  resp = performCmdHandshake();
+  if(resp != 0x3) {
+    Serial.print("Profile write not ack (0x3) -> ");
+    Serial.println(resp);
+    return;
+  }
+  //Send data
+  writeData((ramData>>24) & 0xFF);
+  writeData((ramData>>16) & 0xFF);
+  writeData((ramData>>8) & 0xFF);
+  writeData(ramData & 0xFF);
+  ++ramData;
+  for(uint16_t i=4;i<532;++i){
+    writeData(i & 0xFF);
+  }
+  resp = performCmdHandshake();
+  if(resp != 0x6) {
+    Serial.print("Profile write not ack (0x6) -> ");
+    Serial.println(resp);
+    return;
+  }
+  Serial.print("Status :");
+  for(uint16_t i=0;i<4;++i){
+    Serial.print(" 0x");
+    Serial.print(readData(), HEX);
+  }
+  Serial.println("\nWrite done!");
 }
 
 void loop() {
@@ -264,10 +300,14 @@ void loop() {
     writeCommand(0x0, 0x1, 0x20, 0x30);
     break;
   case 'd':
-    dumpRAM();
+    doWriteRAM();
+    //doRead(0xfffffe, true, false, false); 
     break;
   case 's':
     doSpare(true);
+    break;
+  case 'x':
+    doRead(0xfffffe, true, false, false); 
     break;
   case 'p':
     Serial.println("Checking parity");

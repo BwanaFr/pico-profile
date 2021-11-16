@@ -143,6 +143,10 @@ void Protocol::configureDMA() {
 
 void Protocol::prepareNextState() {
     switch(state_) {
+        case ProfileState::IDLE:
+            //Get command
+            setState(ProfileState::GET_COMMAND);
+            break;
         case ProfileState::GET_COMMAND:
             //Parse command
             parseCommand();            
@@ -150,12 +154,10 @@ void Protocol::prepareNextState() {
         case ProfileState::RCV_WRITE_DATA:
         case ProfileState::RCV_WRITE_VERIFY_DATA:
             //After write to RAM, write data to SD
+            printf("will do write\n");
             setState(ProfileState::DO_WRITE);
             break;
         default:
-            //Default state
-            //After IDLE, READ, DO_WRITE
-            setState(ProfileState::GET_COMMAND);
             break;
     }
 }
@@ -170,6 +172,8 @@ void Protocol::executeCurrentState() {
         case ProfileState::READ_BLOCK:
             //Reads data from SD and put it to RAM
             readBlock();
+            //Profile will be ready to get next command
+            setState(ProfileState::IDLE);
             break;
         case ProfileState::RCV_WRITE_DATA:
         case ProfileState::RCV_WRITE_VERIFY_DATA:
@@ -180,10 +184,13 @@ void Protocol::executeCurrentState() {
         case ProfileState::DO_WRITE:
             //Write RAM to disk
             doWrite();
+            //Profile is now ready to get next command
+            setState(ProfileState::IDLE);
             break;
         default:
             printf("executeCurrentState : Unexpected state : %x", state_);
             handshakeDone();
+            setState(ProfileState::IDLE);
             break;
     }
 }
@@ -203,6 +210,7 @@ void Protocol::handleProtocol() {
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
         if(resp != APPLE_ACK){
+            printf("0x55 not received (got 0x%02x)!\n", resp);
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
             handshakeDone();
@@ -437,8 +445,9 @@ void Protocol::setState(ProfileState newState) {
         pio_sm_init(CMD_PIO, CMD_SM, pioCmdOffs_, &pioCmdCfg_);
         pio_sm_clear_fifos(CMD_PIO, CMD_SM);
         pio_sm_set_enabled(CMD_PIO, CMD_SM, true);
+    }else if(newState != state_){
+        pio_sm_put_blocking(CMD_PIO, CMD_SM, newState);
     }
-    pio_sm_put_blocking(CMD_PIO, CMD_SM, newState);
     state_ = newState;
 }
 
