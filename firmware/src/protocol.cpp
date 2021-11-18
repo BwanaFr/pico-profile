@@ -137,7 +137,7 @@ void Protocol::configurePIO() {
 
 void Protocol::configureDMA() {
     printf("Configuring DMA for data transfer\n");
-    irq_set_exclusive_handler(DMA_IRQ_1, data_dma_done);       //Set IRQ handler for DMA transfer
+    irq_add_shared_handler(DMA_IRQ_1, data_dma_done, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);       //Set IRQ handler for DMA transfer
     irq_set_enabled(DMA_IRQ_1, true);                          //Enable IRQ
 }
 

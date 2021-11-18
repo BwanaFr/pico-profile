@@ -21,13 +21,17 @@ add_executable(pico-profile
     src/DC42File.cpp
     src/protocol.hxx
     src/protocol.cpp
+    src/display/display.hxx
+    src/display/display.cpp
+    src/display/lisa_logo.h
+    src/display/font_6x13.hxx
 )
 
 # Generate pio header
 pico_generate_pio_header(pico-profile ${CMAKE_CURRENT_LIST_DIR}/src/pico-profile.pio)
 
 # Add the standard library to the build
-target_link_libraries(pico-profile pico_stdlib hardware_pio)
+target_link_libraries(pico-profile pico_stdlib hardware_pio hardware_i2c)
 
 target_compile_options(pico-profile PUBLIC -Wall -Wextra -Wno-unused-function -Wno-unused-parameter)
 target_compile_definitions(pico-profile PUBLIC DEBUG N_SD_CARDS=1)
