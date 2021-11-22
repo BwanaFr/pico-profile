@@ -27,6 +27,10 @@ socket, which SPI it is driven by, and how it is wired.
 #include "my_debug.h"
 //
 #include "hw_config.h"
+//
+#include "ff.h" /* Obtains integer types */
+//
+#include "diskio.h" /* Declarations of disk functions */
 
 void spi0_dma_isr();
 
@@ -43,7 +47,7 @@ static spi_t spis[] = {  // One for each SPI.
            can only mangage 5 MHz. Those are all I've tried. */
         //.baud_rate = 1000 * 1000,
         //.baud_rate = 12500 * 1000,  // The limitation here is SPI slew rate.
-        .baud_rate = 50 * 1000 * 1000, // Actual frequency: 20833333. Has
+        .baud_rate = 10 * 1000 * 1000, // Actual frequency: 20833333. Has
         // worked for me with SanDisk.
 
         // Following attributes are dynamically assigned

@@ -1,9 +1,11 @@
 #ifndef DISPLAY_HXX_
 #define DISPLAY_HXX_
 
+//#define WITH_DMA 1
+
 #include <pico/stdlib.h>
 #include <pico/time.h>
-#include <pico/sync.h>
+#include <pico/time.h>
 #include "font_6x13.hxx"
 
 class Display {
@@ -12,7 +14,7 @@ public:
     /**
      * Initializes the display
      **/
-    static void initDisplay();
+    static void initialize();
 
     /**
      * Sets text to be displayed
@@ -33,10 +35,19 @@ public:
      **/
     static void showLogo();
 
-    static void busScan();
-    static void demo();
+    /**
+     * Animates the display
+     * Must be called repeatly
+     * @param line1Scrolled Set to true if scrolling of first line will restart
+     * @param line2Scrolled Set to true if scrolling of second line will restart
+     **/
+    static void animateDisplay(bool& line1Scrolled, bool& line2Scrolled);
 
+    static void busScan();
+#ifdef WITH_DMA
     static void dmaDone();
+#endif
+
 private:
     Display() = delete;
     virtual ~Display() = delete;
@@ -85,24 +96,26 @@ private:
 
     static constexpr int32_t SCROLL_SPEED = 100;
     static constexpr int SCROLL_WAIT = 5;
-
+#ifdef WITH_DMA
     static bool displayAddressed_;                     //!< Flag to know if display is addressed
     static uint16_t frameBuffer_[FRAME_BUFFER_LEN];    //!< Buffer for DMA (use 16 bits for the stop)
     static uint16_t cmdBuffer_[CMD_BUFFER_LEN];        //!< Command buffer
     static int dmaChan_;                               //!< DMA channel for transfer
-    static repeating_timer_t scrollTimer_;             //!< Repeating timer for text scrolling
+#endif
+
     typedef struct LineData {
-        char *text;
-        size_t len;
-        int scroll;
-        bool dir;
-        inline LineData() : text(nullptr), len(0), scroll(SCROLL_WAIT), dir(true){}
+        char *text;         //!< Pointer to text
+        size_t len;         //!< Text lenght (to avoid calling strlen)
+        int scroll;         //!< Scroll amount (0 -> len)
+        int scrollWait;     //!< Scroll wait state
+        bool dir;           //!< Scroll direction 
+        inline LineData() : text(nullptr), len(0), scroll(SCROLL_WAIT), dir(true), scrollWait(0){}
     }LineData;
 
     static LineData lines_[2];                         //!< Text lines
     static bool textMode_;                             //!< Text mode (to prevent scrolling)
-    static bool rendering_;
-    static critical_section_t critSection_;
+    static absolute_time_t nextScroll_;                //!< Next scrolling time
+
     /**
      * Configures the I2C bus
      **/
@@ -113,13 +126,15 @@ private:
      * @param cmd Command to be send
      **/
     static void sendCmd(uint8_t cmd);
-    
+
+#ifdef WITH_DMA
     /**
      * Send a complete buffer to OLED
      * Should use the DMA
      **/
     static void sendBuffer();
-    
+#endif
+
     /**
      * Update a portion of the display with a render area
      **/

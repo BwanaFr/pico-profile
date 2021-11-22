@@ -1,36 +1,39 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "pico/time.h"
 #include "io_functions.hxx"
 #include "protocol.hxx"
 #include "DC42File.hxx"
-#include "display/display.hxx"
+#include "display/hmi.hxx"
+#include "pico/multicore.h"
+
+/**
+ * Use the core 1 for display and HMI
+ **/
+void core1_entry() {
+    int i=0;
+    HMI::initialize();
+    while (true) {
+        //HMI::handleHMI();
+        sleep_ms(100);
+        printf("#%d : Hello from core 1\n", ++i);
+    }
+}
 
 int main() {
     stdio_init_all();
-    /*initializeGPIO();
+    initializeGPIO();
+    //Starts display on second core
+    multicore_launch_core1(core1_entry);
+    //TODO : Remove C++ objects from stack and make all method static
     DC42File file;
     printf("\nPico-profile\n");
     if(!file.open("lisaem-profile.dc42")){
         printf("Unable to open file : %s\n", file.getLastError());
-    }else{
-        char name[64];
-        if(file.readImageName(name))
-            printf("DC42 image name : %s\n", name);
     }
     Protocol proto(&file);
     while (true) {
         proto.handleProtocol();
-    }*/
-    for(int i=10;i>0;--i){
-        printf(".");
-        sleep_ms(500);
-    }
-    printf("\n");
-    //Display::busScan();
-    Display::initDisplay();
-    while (true) {
-        Display::demo();
-        sleep_ms(30000);
     }
     return 0;
 }

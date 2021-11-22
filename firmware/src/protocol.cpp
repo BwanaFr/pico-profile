@@ -4,6 +4,7 @@
 #include "hardware/irq.h"
 #include "hardware/dma.h"
 #include <string.h>
+#include "display/hmi.hxx"
 
 //PIO for command handshake
 #define CMD_PIO pio0
@@ -154,7 +155,6 @@ void Protocol::prepareNextState() {
         case ProfileState::RCV_WRITE_DATA:
         case ProfileState::RCV_WRITE_VERIFY_DATA:
             //After write to RAM, write data to SD
-            printf("will do write\n");
             setState(ProfileState::DO_WRITE);
             break;
         default:
@@ -326,7 +326,8 @@ void Protocol::parseCommand() {
     lastCmd_.command = static_cast<ProfileCommand>(gpioToByte(cmdRxBuffer_[0]));
     lastCmd_.blockNumber = gpioToByte(cmdRxBuffer_[1]) << 16 | gpioToByte(cmdRxBuffer_[2]) << 8 | gpioToByte(cmdRxBuffer_[3]);
     lastCmd_.retryCount = gpioToByte(cmdRxBuffer_[4]);
-    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);        
+    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);     
+    HMI::profileCommandReceived(lastCmd_);   
     switch(lastCmd_.command){
         case ProfileCommand::READ:
             setState(ProfileState::READ_BLOCK);
@@ -338,11 +339,10 @@ void Protocol::parseCommand() {
             setState(ProfileState::RCV_WRITE_VERIFY_DATA);
             break;
         default:
-            printf("Unknown command : %x\n", lastCmd_.command);
             setState(ProfileState::IDLE);
             break;
     }
-    printCommand(lastCmd_);    
+    //printCommand(lastCmd_);
 }
 
 void Protocol::readBlock() {

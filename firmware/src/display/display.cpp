@@ -10,6 +10,7 @@
 
 #define OLED_I2C i2c1
 
+#ifdef WITH_DMA
 bool Display::displayAddressed_ = false;             //!< Flag to know if display is addressed
 uint16_t Display::frameBuffer_[FRAME_BUFFER_LEN];     //!< Buffer for DMA (use 16 bits for the stop)
 uint16_t Display::cmdBuffer_[CMD_BUFFER_LEN] = {0x80, OLED_SET_COL_ADDR,
@@ -20,11 +21,10 @@ uint16_t Display::cmdBuffer_[CMD_BUFFER_LEN] = {0x80, OLED_SET_COL_ADDR,
                                     0x80, OLED_NUM_PAGES | (bool_to_bit(true)<<I2C_IC_DATA_CMD_STOP_LSB)
                                     };
 int Display::dmaChan_ = -1;
+#endif
 Display::LineData Display::lines_[2];
-repeating_timer_t Display::scrollTimer_;
 bool Display::textMode_ = false;
-bool Display::rendering_ = false;
-critical_section_t Display::critSection_;
+absolute_time_t Display::nextScroll_;
 
 void Display::configureI2C()
 {    
@@ -47,6 +47,7 @@ void Display::sendCmd(uint8_t cmd)
     i2c_write_blocking(OLED_I2C, (OLED_ADDR & OLED_WRITE_MODE), buf, 2, false);
 }
 
+#ifdef WITH_DMA
 void Display::dmaDone()
 {
     //DMA transfer done
@@ -107,10 +108,10 @@ void Display::sendBuffer()
         );
     }    
 }
+#endif
 
-void Display::initDisplay()
+void Display::initialize()
 {
-    critical_section_init(&critSection_);
     configureI2C();
 
     sendCmd(OLED_SET_DISP | 0x00); // set display off
@@ -163,46 +164,91 @@ void Display::initDisplay()
 
     sendCmd(OLED_SET_DISP | 0x01); // turn display on
 
-    //Starts the timer used for scrolling text
-    add_repeating_timer_ms(SCROLL_SPEED, Display::scrollTimer, nullptr, &scrollTimer_);
+    nextScroll_ = make_timeout_time_ms(SCROLL_SPEED);
 }
 
 void Display::render(const uint8_t *buf)
 {
-    critical_section_enter_blocking(&critSection_);
+#ifdef WITH_DMA
     frameBuffer_[0] = 0x40;
     for(int i=1;i<FRAME_BUFFER_LEN;++i){
         frameBuffer_[i] = buf[i-1];
     }
     frameBuffer_[FRAME_BUFFER_LEN-1] |= (bool_to_bit(true)<<I2C_IC_DATA_CMD_STOP_LSB);
-    critical_section_exit(&critSection_);
     sendBuffer();
+#else
+    static const uint8_t addressBuffer[] = {0x80, OLED_SET_COL_ADDR,
+                                    0x80, 0,
+                                    0x80, OLED_WIDTH - 1,
+                                    0x80, OLED_SET_PAGE_ADDR,
+                                    0x80, 0,
+                                    0x80, OLED_NUM_PAGES
+                                    };
+    i2c_write_blocking(OLED_I2C, (OLED_ADDR & OLED_WRITE_MODE), addressBuffer, 12, false);
+    uint8_t buffer[FRAME_BUFFER_LEN+1];
+    buffer[0] = 0x40;
+    for(int i=0;i<FRAME_BUFFER_LEN;++i) {
+        buffer[i+1] = buf[i];
+    }
+    i2c_write_blocking(OLED_I2C, (OLED_ADDR & OLED_WRITE_MODE), buffer, FRAME_BUFFER_LEN+1, false);
+#endif
 }
 
-bool Display::scrollTimer(repeating_timer_t *rt)
+void Display::animateDisplay(bool& line1Scrolled, bool& line2Scrolled)
 {
+    //Scroll only in text mode
     if(textMode_){        
-        for(int i=0;i<2;++i){
-            if(lines_[i].len > MAX_LINE_CHARS){
-                //Need to scroll
-                if(lines_[i].dir){
-                    lines_[i].scroll -= 1;
-                    if(lines_[i].scroll < -SCROLL_WAIT){
-                        lines_[i].dir = false;
+        if(absolute_time_diff_us(nextScroll_, get_absolute_time()) > 0){
+            line1Scrolled = line2Scrolled = false;
+            for(int i=0;i<2;++i){
+                if(lines_[i].len > MAX_LINE_CHARS){
+                    //Need to scroll, text is too long to fit
+                    if(lines_[i].scrollWait>0){
+                        //We are waiting
+                        lines_[i].scrollWait -= 1;
+                        if((lines_[i].scrollWait == 0) && 
+                            !lines_[i].dir)
+                        {
+                            if(i == 0){
+                                line1Scrolled = true;
+                            }else{
+                                line2Scrolled = true;
+                            }
+                        }
+                    }else{
+                        //Need to scroll
+                        if(lines_[i].dir){
+                            //Scroll right to left
+                            lines_[i].scroll -= 1;
+                            if(lines_[i].scroll < 0){
+                                //Amount of scroll reached
+                                lines_[i].scrollWait = SCROLL_WAIT;
+                                lines_[i].dir = false;
+                            }
+                        }else{
+                            //Scroll left to right
+                            lines_[i].scroll += 1;
+                            if((lines_[i].len - lines_[i].scroll) <= MAX_LINE_CHARS){
+                                //End of string fits display, invert scroll direction
+                                lines_[i].dir = true;
+                                lines_[i].scrollWait = SCROLL_WAIT;
+                            }
+                        }
                     }
                 }else{
-                    lines_[i].scroll += 1;
-                    if((lines_[i].len - lines_[i].scroll) < MAX_LINE_CHARS){
-                        lines_[i].dir = true;
+                    //No need to scroll (text fits)
+                    lines_[i].scroll = 0;
+                    if(i == 0){
+                        line1Scrolled = true;
+                    }else{
+                        line2Scrolled = true;
                     }
                 }
-            }else{
-                lines_[i].scroll = 0;
             }
+            renderText();
+            nextScroll_ = make_timeout_time_ms(SCROLL_SPEED);
         }
-        renderText();
     }
-    return true;
 }
 
 void Display::showLogo()
@@ -211,58 +257,39 @@ void Display::showLogo()
     render(lisa_logo);
 }
 
-void Display::demo()
-{
-    static int count = 0;
-    printf("Display demo!\n");
-
-    showLogo();
-    sleep_ms(1000);
-    char text[32];
-    setText("Hello, I'm Pico-profile. The low-cost Apple Profile emulator for Lisa (and maybe Apple III)", 1);
-    for(int i=0;i<100;++i){
-        sprintf(text, "Line 1 : %5d", ++count);
-        setText(text);
-    }
-}
-
 void Display::setText(const char* txt, uint line)
 {
     if(line > 1)
         return;
     textMode_ = true;
-    critical_section_enter_blocking(&critSection_);
     size_t newLen = strlen(txt);
     if(newLen > lines_[line].len){
         delete[] lines_[line].text;
-        lines_[line].text = new char[newLen];
+        lines_[line].text = new char[newLen + 1];
     }
-    memcpy(lines_[line].text, txt, newLen);
+    strcpy(lines_[line].text, txt);
     lines_[line].len = newLen;
     lines_[line].scroll = 0;
     lines_[line].dir = true;
-    critical_section_exit(&critSection_);
     renderText();
 }
 
 void Display::setText(const char* line1, const char* line2)
 {
     textMode_ = true;
-    critical_section_enter_blocking(&critSection_);
     for(int line=0;line<2;++line){
         const char * txt = (line == 0 ? line1 : line2);
         size_t newLen = strlen(txt);
         if(newLen > lines_[line].len){
             delete[] lines_[line].text;
-            lines_[line].text = new char[newLen];
+            lines_[line].text = new char[newLen + 1];
         }
-        memcpy(lines_[line].text, txt, newLen);
+        strcpy(lines_[line].text, txt);
         lines_[line].len = newLen;
         lines_[line].scroll = 0;
         lines_[line].dir = true;
     }
-    critical_section_exit(&critSection_);
-    //renderText();
+    renderText();
 }
 
 void Display::renderText()
@@ -276,10 +303,12 @@ void Display::renderText()
     
     for(unsigned int l=0;l<2;++l){
         q = &buf[l*256];
-        int offset = lines_[l].scroll > 0 ? lines_[l].scroll : 0;
-        size_t len = lines_[l].len - offset;
+        size_t offset = lines_[l].scroll > 0 ? lines_[l].scroll : 0;
+        size_t len = lines_[l].len;
         if(len > MAX_LINE_CHARS){
             len = MAX_LINE_CHARS;
+        }else if(len > offset){
+            len = lines_[l].len - offset;
         }
         const char* txt = lines_[l].text + offset;
         for(unsigned int i=0;i<len;++i){

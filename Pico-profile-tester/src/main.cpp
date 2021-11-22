@@ -12,7 +12,7 @@ void setup() {
 uint8_t i = 0;
 
 uint8_t performCmdHandshake(){
-  Serial.print("Handshaking : ");
+  //Serial.print("Handshaking : ");
   while(!digitalRead(PBSY)){}
   //Put bus to read and lower CMD
   readData(false);
@@ -27,7 +27,7 @@ uint8_t performCmdHandshake(){
   digitalWrite(PCMD, true);
 //  Serial.println("Waiting for busy high");
   while(!digitalRead(PBSY)){}
-  Serial.println(data);
+  //Serial.println(data);
   return data;
 }
 
@@ -40,7 +40,7 @@ void writeCommand(uint8_t cmd, uint32_t block,
     cmdBytes[3] = (block & 0xFF);
     cmdBytes[4] = retry;
     cmdBytes[5] = spare;
-    Serial.println("Writing command");
+    //Serial.println("Writing command");
     for(uint8_t i=0;i< 6;++i){
       writeData(cmdBytes[i]);
     }
@@ -52,7 +52,7 @@ void writePartialCommand(uint8_t cmd, uint32_t block) {
     cmdBytes[1] = (block >> 16) & 0xFF;
     cmdBytes[2] = (block >> 8) & 0xFF;
     cmdBytes[3] = (block & 0xFF);
-    Serial.println("Writing partial command");
+    //Serial.println("Writing partial command");
     for(uint8_t i=0;i<4;++i){
       writeData(cmdBytes[i]);
     }
@@ -75,7 +75,7 @@ bool checkParityBit(uint8_t data, bool parity)
 void doRead(uint32_t block, bool handshake, bool parity, bool benchmark){
   if(handshake) {
     uint8_t resp = 0;
-    Serial.println("Performing read");
+    //Serial.println("Performing read");
     resp = performCmdHandshake();
     if(resp != 0x1){
       Serial.print("Profile not ready! -> ");
@@ -281,6 +281,34 @@ void doWriteRAM() {
   Serial.println("\nWrite done!");
 }
 
+void commandBurst(){
+  for(int j=0;j<20;++j){
+    for(int i=0;i<200;++i) {
+      uint8_t resp = 0;
+      resp = performCmdHandshake();
+      if(resp != 0x1){
+        Serial.print("Profile not ready! -> ");
+        Serial.println(resp);
+        return;
+      }
+      //Write read command
+      writeCommand(0x0, i*20, 0x2, 0x3);
+      //Wait for confirmation
+      resp = performCmdHandshake();
+      if(resp != 2){
+        Serial.print("Unexpected Profile response (0x2) -> ");
+        Serial.println(resp);
+        return;
+      }
+      for(int i=0;i<32;++i){
+        cycleStrobe();
+      }
+    }
+    Serial.print(".");
+  }
+  Serial.println("\nDone!");
+}
+
 void loop() {
   Serial.println("Hit a key to start reading");
   while(Serial.available() == 0){}
@@ -308,6 +336,13 @@ void loop() {
     break;
   case 'x':
     doRead(0xfffffe, true, false, false); 
+    break;
+  case 'b':
+    for(int i=0;i<20000;++i){
+      commandBurst();
+      doSpare(true);
+      _delay_ms(500);
+    }
     break;
   case 'p':
     Serial.println("Checking parity");

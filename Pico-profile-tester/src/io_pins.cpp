@@ -66,6 +66,13 @@ uint8_t readBus()
     return (PIN10 & B00000011) | (PIN27 & B11111100);
 }
 
+void cycleStrobe()
+{
+    //Signal data-taken
+    digitalWrite(PSTRB, false);    
+    digitalWrite(PSTRB, true);
+}
+
 uint8_t readData(bool useStrobe)
 {
     //Set direction as read
@@ -75,9 +82,7 @@ uint8_t readData(bool useStrobe)
     
     uint8_t value = readBus();
     if(useStrobe){
-        //Signal data-taken
-        digitalWrite(PSTRB, false);    
-        digitalWrite(PSTRB, true);
+        cycleStrobe();
     }    
     return value;
 }
@@ -93,8 +98,7 @@ uint8_t readDataParity(bool& parity, bool useStrobe)
     parity = digitalRead(PPARITY);
     if(useStrobe){
         //Signal data-taken
-        digitalWrite(PSTRB, false);    
-        digitalWrite(PSTRB, true);
+        cycleStrobe();
     }    
     return value;
 }
@@ -106,8 +110,7 @@ void writeData(uint8_t data, bool useStrobe)
     //Set direction as write
     digitalWrite(PRW, 0);
     if(useStrobe){
-        digitalWrite(PSTRB, false);
-        digitalWrite(PSTRB, true);
+        cycleStrobe();
     }
 }
 

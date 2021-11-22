@@ -1,6 +1,7 @@
 #include "DC42File.hxx"
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "display/hmi.hxx"
 
 extern "C"{
     #include "ff.h"
@@ -69,6 +70,9 @@ bool DC42File::open(const char* file) {
         tagOffset_ = dataSize + IMAGE_DATA;
         //TODO: Maybe add more checks, like CRC and tag size check (must be 20 bytes)
         internalError_ = NO_ERRORS;
+        char imgName[63];
+        readImageName(imgName);
+        HMI::setFileInfo(file, imgName);
     }
     return true;
 }
