@@ -88,6 +88,20 @@ public:
      **/
     bool computeTagChecksum(uint32_t &chksum);
 
+    enum InternalError {
+        NO_ERRORS = 0,                      //!< No error present
+        NOT_INITIALIZED,                    //!< Class not initialized
+        FILE_OPEN_ERROR,                    //!< File is not open
+        WRONG_MAGIC,                        //!< Wrong magic number
+        BAD_BLOCK_NUMBER,                   //!< Bad block number
+    };
+
+    /**
+     * Gets internal error
+     * @return Internal error value
+     **/
+    inline InternalError getInternalError() { return internalError_;}
+
     static FATFS fatFs_;                            //!< FatFs work area
 
     static constexpr uint16_t BYTES_PER_BLOCK = 512;            //!< Assume 512 bytes per block
@@ -130,15 +144,10 @@ private:
     static constexpr uint16_t MAGIC_NUMBER_VAL = 0x0100;        //!< Magic number
     
     FRESULT fatFsResult_;                   //!< Result of FatFs calls
-    enum InternalError {
-        NO_ERRORS = 0,                      //!< No error present
-        NOT_INITIALIZED,                    //!< Class not initialized
-        FILE_OPEN_ERROR,                    //!< File is not open
-        WRONG_MAGIC,                        //!< Wrong magic number
-        BAD_BLOCK_NUMBER,                   //!< Bad block number
-    };
+    
     InternalError internalError_;           //!< Internal error 
     uint32_t tagOffset_;                    //!< Tag offset in the file
+    uint32_t blockCount_;                   //!< Number of block in the file
     FIL file_;                              //!< Pointer to file
 };
 

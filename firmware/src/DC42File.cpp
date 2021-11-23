@@ -24,12 +24,18 @@ if((internalError_ == NOT_INITIALIZED) || \
     (internalError_ == WRONG_MAGIC)) \
 return false; 
 
+#define CHECK_BLOCK(block) \
+if(block>=blockCount_) { \
+    internalError_ = BAD_BLOCK_NUMBER; \
+    return false; \
+}
+
 bool DC42File::initialized_ = false;
 FATFS DC42File::fatFs_;
 
 DC42File::DC42File() :
         fatFsResult_(FR_OK), internalError_(NOT_INITIALIZED),
-        tagOffset_(0) {
+        tagOffset_(0), blockCount_(0) {
 }
 
 DC42File::~DC42File() {
@@ -38,7 +44,7 @@ DC42File::~DC42File() {
 
 bool DC42File::open(const char* file) {
     if(!initialized_) {
-        CALL_CHECK(sd_init_driver());
+        //CALL_CHECK(sd_init_driver());
         initialized_ = true;
         //Initialize the FatFs work area
         f_mount(&fatFs_, "", 1);
@@ -67,6 +73,7 @@ bool DC42File::open(const char* file) {
             internalError_ = FILE_OPEN_ERROR;
             return false;
         }
+        blockCount_ = dataSize/BYTES_PER_BLOCK;
         tagOffset_ = dataSize + IMAGE_DATA;
         //TODO: Maybe add more checks, like CRC and tag size check (must be 20 bytes)
         internalError_ = NO_ERRORS;
@@ -82,12 +89,13 @@ void DC42File::closeFile()
     if(initialized_ && (internalError_ != FILE_OPEN_ERROR)
         && (internalError_ != NOT_INITIALIZED)){
         f_close(&file_);
-        internalError_ == NOT_INITIALIZED;
+        internalError_ = NOT_INITIALIZED;
     }
 }
 
 bool DC42File::readBlock(uint32_t blockNumber, uint8_t* data) {
     CHECK_STATUS
+    CHECK_BLOCK(blockNumber)
     uint32_t dataOffset = blockNumber * BYTES_PER_BLOCK + IMAGE_DATA;
     if(dataOffset > tagOffset_){
         internalError_ = BAD_BLOCK_NUMBER;
@@ -100,6 +108,7 @@ bool DC42File::readBlock(uint32_t blockNumber, uint8_t* data) {
 
 bool DC42File::readTag(uint32_t blockNumber, uint8_t* data) {
     CHECK_STATUS
+    CHECK_BLOCK(blockNumber)
     uint32_t tagOffset = blockNumber * BYTES_PER_TAG + tagOffset_;
     CALL_FS_CHECK(f_lseek(&file_, tagOffset));
     UINT read = 0;
@@ -109,10 +118,8 @@ bool DC42File::readTag(uint32_t blockNumber, uint8_t* data) {
 
 bool DC42File::writeBlock(uint32_t blockNumber, const uint8_t* data) {
     CHECK_STATUS
-    uint32_t dataOffset = blockNumber * BYTES_PER_BLOCK + IMAGE_DATA;
-    if(dataOffset > tagOffset_){
-        internalError_ = BAD_BLOCK_NUMBER;
-    }    
+    CHECK_BLOCK(blockNumber)
+    uint32_t dataOffset = blockNumber * BYTES_PER_BLOCK + IMAGE_DATA;     
     CALL_FS_CHECK(f_lseek(&file_, dataOffset));
     UINT wrote = 0;
     CALL_FS_CHECK(f_write(&file_, data, BYTES_PER_BLOCK, &wrote));
@@ -121,6 +128,7 @@ bool DC42File::writeBlock(uint32_t blockNumber, const uint8_t* data) {
 
 bool DC42File::writeTag(uint32_t blockNumber, const uint8_t* data) {
     CHECK_STATUS
+    CHECK_BLOCK(blockNumber)
     uint32_t tagOffset = blockNumber * BYTES_PER_TAG + tagOffset_;
     CALL_FS_CHECK(f_lseek(&file_, tagOffset));
     UINT wrote = 0;
@@ -132,22 +140,18 @@ bool DC42File::readImageName(char* data) {
     CHECK_STATUS
     uint8_t len = 0;
     CALL_CHECK(read(IMG_NAME_LEN, &len));
-    
     if(len > 63){
         len = 63;
     }
     CALL_FS_CHECK(f_lseek(&file_, IMG_NAME));
-    int toRead = len + 1;
+    UINT toRead = len + 1;
     UINT read = 0;
     CALL_FS_CHECK(f_read(&file_, data, toRead, &read));
     return read == toRead;
 }
 
 bool DC42File::getDataBlockCount(uint32_t &count) {
-    CHECK_STATUS
-    uint32_t dataSize = 0;
-    CALL_CHECK(read(DATA_BLOCK_SIZE, &dataSize));
-    count = dataSize/BYTES_PER_BLOCK;
+    count = blockCount_;
     return true;
 }
 

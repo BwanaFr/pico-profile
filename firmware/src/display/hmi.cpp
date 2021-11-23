@@ -13,7 +13,7 @@ queue_t HMI::msgQueue_;
 
 void HMI::initialize()
 {
-    queue_init(&msgQueue_, sizeof(Message), 20);
+    queue_init(&msgQueue_, sizeof(Message), 5);
     sleep_ms(2000); //Wait for the display to be ready
     Display::initialize();
     Display::showLogo();
@@ -32,14 +32,14 @@ void HMI::handleHMI()
                 operation = 'W';
                 operation |= 0x80; //Make this reverse
             }
-            char infoStr[32];
+            char infoStr[64];
             if(cmd->blockNumber == Protocol::SPARE_TABLE_ADDR){
                 sprintf(infoStr, "%c    SPARE TABLE", operation);
             }else{
                 sprintf(infoStr, "%c B:$%06lx R:%u S:%u", operation, cmd->blockNumber, cmd->retryCount, cmd->sparesThreshold);
             }
             Display::setText(infoStr);
-             //Free the payload
+            //Free the payload
             delete cmd;
             break;
         }
@@ -63,6 +63,9 @@ void HMI::handleHMI()
             delete[] fileImageName;
             break;
         }
+        default:
+            printf("Unsupported HMI update!\n");
+            break;
         }
     }
     bool line1Scrolled = false;
@@ -87,9 +90,14 @@ void HMI::handleHMI()
                     Display::setText(str, 1);
                     break;
                 }
+            default:
+                secLineState_ = SecondLineState::NoDisplay;
+                break;
         }
         if(secLineState_ != SecondLineState::NoDisplay){
             secLineTimeout_ = make_timeout_time_ms(2000);
+        }else{
+            secLineTimeout_ = 0;
         }
     }
 }

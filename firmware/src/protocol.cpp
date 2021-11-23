@@ -37,7 +37,14 @@ Protocol::Protocol(DC42File* file) :
     dataReadDMAChan_(-1), dataWriteDMAChan_(-1),
     received_(0), toSend_(0), status_(0)
 {
-    singleton = this;
+    singleton = this;    
+}
+
+Protocol::~Protocol() {
+}
+
+
+void Protocol::initialize() {
     //Initialize semaphores
     sem_init(&dataWriteSem_, 0, 1); 
     sem_init(&dataReadSem_, 0, 1);
@@ -48,10 +55,6 @@ Protocol::Protocol(DC42File* file) :
     //Updates the spare table depending on file
     updateSpareTable();
 }
-
-Protocol::~Protocol() {
-}
-
 
 void Protocol::configurePIO() {
     uint32_t modify = 0;
@@ -346,7 +349,6 @@ void Protocol::parseCommand() {
 }
 
 void Protocol::readBlock() {
-    //printf("Read block\n");
     if (lastCmd_.blockNumber<0x00f00000)   lastCmd_.blockNumber = deinterleave5(lastCmd_.blockNumber);
     if(lastCmd_.blockNumber == SPARE_TABLE_ADDR){
         //Spare table, 
@@ -361,12 +363,18 @@ void Protocol::readBlock() {
     }else{
         //Read to buffer + 4 to keep space for status bytes
         if(!file_->readTag(lastCmd_.blockNumber, txBuffer_ + 4)) {
-            setStatus(STATUS_UNSUCCESS);
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER){
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
         }
         if(!file_->readBlock(lastCmd_.blockNumber, txBuffer_ + 4 + 20)) {
-            //Read failure, need to raise some status bits
-            //TODO: If failure, does the apple read all bytes?
-            setStatus(STATUS_UNSUCCESS);
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER){
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
         }
     }
     //Build status bytes
@@ -387,11 +395,23 @@ void Protocol::doWrite() {
         for(int i=0;i<20;++i){
             bufByte[i] = RX_TO_BYTE(i);
         }
-        file_->writeTag(lastCmd_.blockNumber, bufByte);
+        if(!file_->writeTag(lastCmd_.blockNumber, bufByte)){
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER) {
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
+        }
         for(int i=0;i<512;++i){
             bufByte[i] = RX_TO_BYTE(i+20);
         }
-        file_->writeBlock(lastCmd_.blockNumber, bufByte);
+        if(!file_->writeBlock(lastCmd_.blockNumber, bufByte)){
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER) {
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
+        }
     }
     if(pio_sm_get_rx_fifo_level(DATA_PIO, DATA_WRITE_SM) != 0){
         //Data still available on PIO (despite of the 532 byte DMA transfer)

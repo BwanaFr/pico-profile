@@ -16,6 +16,11 @@ public:
     Protocol& operator=(const Protocol& ) = delete;
 
     /**
+     * Initializes this
+     **/
+    void initialize();
+
+    /**
      * Non-blocking function for handling protocol
      **/
     void handleProtocol();
