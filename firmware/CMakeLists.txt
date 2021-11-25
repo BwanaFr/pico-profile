@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 # Initialise the Pico SDK
 pico_sdk_init()
 
-add_subdirectory(./FatFs_SPI build)
+add_subdirectory(./no-OS-FatFS-SD-SPI-RPi-Pico/FatFs_SPI build)
 
 # Add executable. Default name is the project name, version 0.1
 add_executable(pico-profile 
@@ -19,15 +19,23 @@ add_executable(pico-profile
     src/io_functions.cpp
     src/DC42File.hxx
     src/DC42File.cpp
+    src/profileCommand.hxx
     src/protocol.hxx
     src/protocol.cpp
+    src/hw_config.c
+    src/display/display.hxx
+    src/display/display.cpp
+    src/display/lisa_logo.h
+    src/display/font_6x13.hxx
+    src/display/hmi.hxx
+    src/display/hmi.cpp
 )
 
 # Generate pio header
 pico_generate_pio_header(pico-profile ${CMAKE_CURRENT_LIST_DIR}/src/pico-profile.pio)
 
 # Add the standard library to the build
-target_link_libraries(pico-profile pico_stdlib hardware_pio)
+target_link_libraries(pico-profile pico_stdlib pico_multicore hardware_pio hardware_i2c)
 
 target_compile_options(pico-profile PUBLIC -Wall -Wextra -Wno-unused-function -Wno-unused-parameter)
 target_compile_definitions(pico-profile PUBLIC DEBUG N_SD_CARDS=1)

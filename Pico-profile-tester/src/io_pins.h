@@ -39,6 +39,11 @@
 void configureIO();
 
 /**
+ * Cycles the stobe line
+ **/
+void cycleStrobe();
+
+/**
  * Reads data from profile
  * @param useStrobe If true raise the strobe line
  * @return data read from bus

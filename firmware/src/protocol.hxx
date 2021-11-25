@@ -1,9 +1,11 @@
 #ifndef PROTOCOL_H_
 #define PROTOCOL_H_
 
-#include "pico/stdlib.h"
+#include <pico/stdlib.h>
 #include "pico-profile.pio.h"
-#include "pico/sem.h"
+#include <pico/sem.h>
+
+#include "profileCommand.hxx"
 
 class DC42File;
 
@@ -12,6 +14,11 @@ public:
     Protocol(DC42File* file);
     virtual ~Protocol();
     Protocol& operator=(const Protocol& ) = delete;
+
+    /**
+     * Initializes this
+     **/
+    void initialize();
 
     /**
      * Non-blocking function for handling protocol
@@ -33,17 +40,10 @@ public:
      **/
     void commandReceived();
 
-private:
-    /**
-     * Command byte sent by Apple
-     **/
-    enum ProfileCommand {
-        READ = 0,               //!< Read block
-        WRITE,                  //!< Write block
-        WRITE_VERIFY,           //!< Write and verify block
-        WRITE_SPARE,            //!< Writea and force sparing
-    };
+    static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
+    static constexpr uint32_t RAM_BUFFER_ADDR = 0xFFFFFE;   //!< Address of the RAM buffer content
 
+private:
     /**
      *  Next action done by profile
      **/
@@ -56,8 +56,6 @@ private:
         DO_WRITE=6,             //!< Do actual write or write/verify on disk
     };
 
-    static constexpr uint32_t SPARE_TABLE_ADDR = 0xFFFFFF;  //!< Address of the spare table
-    static constexpr uint32_t RAM_BUFFER_ADDR = 0xFFFFFE;   //!< Address of the RAM buffer content
     static constexpr uint CMD_SM = 0;                       //!< Command handshake state machine number
     static constexpr uint DATA_READ_SM = 1;                 //!< Data read state machine number
     static constexpr uint DATA_WRITE_SM = 2;                //!< Data send state machine number    
@@ -107,16 +105,6 @@ private:
     static constexpr uint32_t CMD_PIN = 27;         //CMD GPIO (in)
     static constexpr uint32_t STRB_PIN = 28;        //Strobe GPIO (in)
 
-    /**
-     * Command message received
-     **/
-    typedef struct CommandMessage {
-        ProfileCommand command;     //!< Command
-        uint32_t blockNumber;       //!< Block number to read/write
-        uint8_t retryCount;         //!< Retry count
-        uint8_t sparesThreshold;    //!< Spare threshold
-        inline CommandMessage() : command(READ), blockNumber(0), retryCount(0), sparesThreshold(0){};
-    } CommandMessage;
 
 //Align this structure to 1 byte
 #pragma pack(push, 1) 
@@ -162,6 +150,7 @@ private:
     uint32_t toSend_;                           //!< Number of data to be sent
     uint32_t status_;                           //!< 4 bytes status
     bool cmdReceived_;                          //!< Command received flag
+    bool lisaStarted_;                          //!< LISA started (block 0 read)
     CommandMessage lastCmd_;                    //!< Last received command
     SpareTable spareTable_;                     //!< Spare table
 

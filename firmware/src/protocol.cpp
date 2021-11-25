@@ -4,6 +4,7 @@
 #include "hardware/irq.h"
 #include "hardware/dma.h"
 #include <string.h>
+#include "display/hmi.hxx"
 
 //PIO for command handshake
 #define CMD_PIO pio0
@@ -34,9 +35,17 @@ Protocol::Protocol(DC42File* file) :
     file_(file),
     state_(ProfileState::IDLE),
     dataReadDMAChan_(-1), dataWriteDMAChan_(-1),
-    received_(0), toSend_(0), status_(0)
+    received_(0), toSend_(0), status_(0), 
+    cmdReceived_(false), lisaStarted_(false)
 {
-    singleton = this;
+    singleton = this;    
+}
+
+Protocol::~Protocol() {
+}
+
+
+void Protocol::initialize() {
     //Initialize semaphores
     sem_init(&dataWriteSem_, 0, 1); 
     sem_init(&dataReadSem_, 0, 1);
@@ -47,10 +56,6 @@ Protocol::Protocol(DC42File* file) :
     //Updates the spare table depending on file
     updateSpareTable();
 }
-
-Protocol::~Protocol() {
-}
-
 
 void Protocol::configurePIO() {
     uint32_t modify = 0;
@@ -136,8 +141,7 @@ void Protocol::configurePIO() {
 }
 
 void Protocol::configureDMA() {
-    printf("Configuring DMA for data transfer\n");
-    irq_set_exclusive_handler(DMA_IRQ_1, data_dma_done);       //Set IRQ handler for DMA transfer
+    irq_add_shared_handler(DMA_IRQ_1, data_dma_done, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);       //Set IRQ handler for DMA transfer
     irq_set_enabled(DMA_IRQ_1, true);                          //Enable IRQ
 }
 
@@ -154,7 +158,6 @@ void Protocol::prepareNextState() {
         case ProfileState::RCV_WRITE_DATA:
         case ProfileState::RCV_WRITE_VERIFY_DATA:
             //After write to RAM, write data to SD
-            printf("will do write\n");
             setState(ProfileState::DO_WRITE);
             break;
         default:
@@ -188,6 +191,7 @@ void Protocol::executeCurrentState() {
             setState(ProfileState::IDLE);
             break;
         default:
+            HMI::setErrorMsg("Unexpected state");
             printf("executeCurrentState : Unexpected state : %x", state_);
             handshakeDone();
             setState(ProfileState::IDLE);
@@ -210,6 +214,8 @@ void Protocol::handleProtocol() {
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
         if(resp != APPLE_ACK){
+            if(lisaStarted_)
+                HMI::setErrorMsg("0x55 not received");
             printf("0x55 not received (got 0x%02x)!\n", resp);
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
@@ -300,6 +306,7 @@ void Protocol::abortTransfer() {
 void Protocol::updateSpareTable() {
     uint32_t blockCount = 0;
     if(!file_->getDataBlockCount(blockCount)){
+        HMI::setFatalMsg("Unable to get block count from file!");
         printf("Unable to get block count from file!\n");
     }else{
         printf("Disk has %lu blocks.\n", blockCount);
@@ -326,7 +333,9 @@ void Protocol::parseCommand() {
     lastCmd_.command = static_cast<ProfileCommand>(gpioToByte(cmdRxBuffer_[0]));
     lastCmd_.blockNumber = gpioToByte(cmdRxBuffer_[1]) << 16 | gpioToByte(cmdRxBuffer_[2]) << 8 | gpioToByte(cmdRxBuffer_[3]);
     lastCmd_.retryCount = gpioToByte(cmdRxBuffer_[4]);
-    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);        
+    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);    
+    if(lisaStarted_)
+        HMI::profileCommandReceived(lastCmd_);   
     switch(lastCmd_.command){
         case ProfileCommand::READ:
             setState(ProfileState::READ_BLOCK);
@@ -338,15 +347,13 @@ void Protocol::parseCommand() {
             setState(ProfileState::RCV_WRITE_VERIFY_DATA);
             break;
         default:
-            printf("Unknown command : %x\n", lastCmd_.command);
             setState(ProfileState::IDLE);
             break;
     }
-    printCommand(lastCmd_);    
+    //printCommand(lastCmd_);
 }
 
 void Protocol::readBlock() {
-    //printf("Read block\n");
     if (lastCmd_.blockNumber<0x00f00000)   lastCmd_.blockNumber = deinterleave5(lastCmd_.blockNumber);
     if(lastCmd_.blockNumber == SPARE_TABLE_ADDR){
         //Spare table, 
@@ -361,12 +368,24 @@ void Protocol::readBlock() {
     }else{
         //Read to buffer + 4 to keep space for status bytes
         if(!file_->readTag(lastCmd_.blockNumber, txBuffer_ + 4)) {
-            setStatus(STATUS_UNSUCCESS);
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER){
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
         }
         if(!file_->readBlock(lastCmd_.blockNumber, txBuffer_ + 4 + 20)) {
-            //Read failure, need to raise some status bits
-            //TODO: If failure, does the apple read all bytes?
-            setStatus(STATUS_UNSUCCESS);
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER){
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
+        }
+        if((lastCmd_.blockNumber == 0) && 
+            (lastCmd_.sparesThreshold != 0) && 
+            (lastCmd_.retryCount != 0))
+        {
+            lisaStarted_ = true;
         }
     }
     //Build status bytes
@@ -387,11 +406,23 @@ void Protocol::doWrite() {
         for(int i=0;i<20;++i){
             bufByte[i] = RX_TO_BYTE(i);
         }
-        file_->writeTag(lastCmd_.blockNumber, bufByte);
+        if(!file_->writeTag(lastCmd_.blockNumber, bufByte)){
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER) {
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
+        }
         for(int i=0;i<512;++i){
             bufByte[i] = RX_TO_BYTE(i+20);
         }
-        file_->writeBlock(lastCmd_.blockNumber, bufByte);
+        if(!file_->writeBlock(lastCmd_.blockNumber, bufByte)){
+            if(file_->getInternalError() == DC42File::BAD_BLOCK_NUMBER) {
+                setStatus(STATUS_INVALID_BLOCK_NUM);
+            }else{
+                setStatus(STATUS_UNSUCCESS);
+            }
+        }
     }
     if(pio_sm_get_rx_fifo_level(DATA_PIO, DATA_WRITE_SM) != 0){
         //Data still available on PIO (despite of the 532 byte DMA transfer)
