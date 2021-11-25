@@ -35,7 +35,8 @@ Protocol::Protocol(DC42File* file) :
     file_(file),
     state_(ProfileState::IDLE),
     dataReadDMAChan_(-1), dataWriteDMAChan_(-1),
-    received_(0), toSend_(0), status_(0)
+    received_(0), toSend_(0), status_(0), 
+    cmdReceived_(false), lisaStarted_(false)
 {
     singleton = this;    
 }
@@ -213,7 +214,8 @@ void Protocol::handleProtocol() {
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
         if(resp != APPLE_ACK){
-            HMI::setErrorMsg("0x55 not received");
+            if(lisaStarted_)
+                HMI::setErrorMsg("0x55 not received");
             printf("0x55 not received (got 0x%02x)!\n", resp);
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
@@ -331,8 +333,9 @@ void Protocol::parseCommand() {
     lastCmd_.command = static_cast<ProfileCommand>(gpioToByte(cmdRxBuffer_[0]));
     lastCmd_.blockNumber = gpioToByte(cmdRxBuffer_[1]) << 16 | gpioToByte(cmdRxBuffer_[2]) << 8 | gpioToByte(cmdRxBuffer_[3]);
     lastCmd_.retryCount = gpioToByte(cmdRxBuffer_[4]);
-    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);     
-    HMI::profileCommandReceived(lastCmd_);   
+    lastCmd_.sparesThreshold = gpioToByte(cmdRxBuffer_[5]);    
+    if(lisaStarted_)
+        HMI::profileCommandReceived(lastCmd_);   
     switch(lastCmd_.command){
         case ProfileCommand::READ:
             setState(ProfileState::READ_BLOCK);
@@ -377,6 +380,12 @@ void Protocol::readBlock() {
             }else{
                 setStatus(STATUS_UNSUCCESS);
             }
+        }
+        if((lastCmd_.blockNumber == 0) && 
+            (lastCmd_.sparesThreshold != 0) && 
+            (lastCmd_.retryCount != 0))
+        {
+            lisaStarted_ = true;
         }
     }
     //Build status bytes

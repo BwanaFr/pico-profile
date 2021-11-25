@@ -184,12 +184,12 @@ void Display::render(const uint8_t *buf)
                                     0x80, OLED_NUM_PAGES
                                     };
     i2c_write_blocking(OLED_I2C, (OLED_ADDR & OLED_WRITE_MODE), addressBuffer, 12, false);
-    uint8_t buffer[FRAME_BUFFER_LEN+1];
+    uint8_t buffer[FRAME_BUFFER_LEN];
     buffer[0] = 0x40;
-    for(int i=0;i<FRAME_BUFFER_LEN;++i) {
+    for(int i=0;i<OLED_BUFFER_SIZE;++i) {
         buffer[i+1] = buf[i];
     }
-    i2c_write_blocking(OLED_I2C, (OLED_ADDR & OLED_WRITE_MODE), buffer, FRAME_BUFFER_LEN+1, false);
+    i2c_write_blocking(OLED_I2C, (OLED_ADDR & OLED_WRITE_MODE), buffer, FRAME_BUFFER_LEN, false);
 #endif
 }
 

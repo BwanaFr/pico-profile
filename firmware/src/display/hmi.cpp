@@ -16,7 +16,7 @@ queue_t HMI::msgQueue_;
 void HMI::initialize()
 {
     queue_init(&msgQueue_, sizeof(Message), 5);
-    sleep_ms(1300); //Wait for the display to be ready
+    sleep_ms(1800); //Wait for the display to be ready
     Display::initialize();
     Display::showLogo();
 }
@@ -127,7 +127,7 @@ void HMI::handleHMI()
                     }
                     Display::setText(str, 1);
                 }
-                secLineTimeout_ = make_timeout_time_ms(10000);
+                secLineTimeout_ = make_timeout_time_ms(5000);
                 break;
             case SecondLineState::DisplayFatal:        
                 if(fatalMsg_ ){

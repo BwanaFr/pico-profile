@@ -150,6 +150,7 @@ private:
     uint32_t toSend_;                           //!< Number of data to be sent
     uint32_t status_;                           //!< 4 bytes status
     bool cmdReceived_;                          //!< Command received flag
+    bool lisaStarted_;                          //!< LISA started (block 0 read)
     CommandMessage lastCmd_;                    //!< Last received command
     SpareTable spareTable_;                     //!< Spare table
 
