@@ -140,7 +140,6 @@ void Protocol::configurePIO() {
 }
 
 void Protocol::configureDMA() {
-    printf("Configuring DMA for data transfer\n");
     irq_add_shared_handler(DMA_IRQ_1, data_dma_done, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);       //Set IRQ handler for DMA transfer
     irq_set_enabled(DMA_IRQ_1, true);                          //Enable IRQ
 }
@@ -191,6 +190,7 @@ void Protocol::executeCurrentState() {
             setState(ProfileState::IDLE);
             break;
         default:
+            HMI::setErrorMsg("Unexpected state");
             printf("executeCurrentState : Unexpected state : %x", state_);
             handshakeDone();
             setState(ProfileState::IDLE);
@@ -213,6 +213,7 @@ void Protocol::handleProtocol() {
         //Handshake command completed (cmd lowered)
         uint8_t resp = gpioToByte(pio_sm_get_blocking(CMD_PIO, CMD_SM));
         if(resp != APPLE_ACK){
+            HMI::setErrorMsg("0x55 not received");
             printf("0x55 not received (got 0x%02x)!\n", resp);
             setStatus(STATUS_55_NOT_RECEIVED);
             //Lower the busy line
@@ -303,6 +304,7 @@ void Protocol::abortTransfer() {
 void Protocol::updateSpareTable() {
     uint32_t blockCount = 0;
     if(!file_->getDataBlockCount(blockCount)){
+        HMI::setFatalMsg("Unable to get block count from file!");
         printf("Unable to get block count from file!\n");
     }else{
         printf("Disk has %lu blocks.\n", blockCount);

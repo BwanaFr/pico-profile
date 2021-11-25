@@ -38,7 +38,6 @@ void Display::configureI2C()
     gpio_set_input_hysteresis_enabled(SDA_PIN, true);
     gpio_set_function(SDA_PIN, gpio_function::GPIO_FUNC_I2C);
     i2c_init(OLED_I2C, BAUD_RATE);
-    printf("I2C configured\n");
 }
 
 void Display::sendCmd(uint8_t cmd)

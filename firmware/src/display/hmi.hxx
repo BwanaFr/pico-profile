@@ -30,6 +30,20 @@ public:
      **/
     static void setFileInfo(const char* fileName, const char* imgName);
 
+    /**
+     * Sets an error message to be displayed
+     * Error messages are cleared after a timeout
+     * @param msg Error message
+     **/
+    static void setErrorMsg(const char* msg);
+
+    /**
+     * Sets a fatal error message to be displayed
+     * Fatal errors are not cleared
+     * @param msg Error message
+     **/
+    static void setFatalMsg(const char* msg);
+
 private:    
     HMI() = delete;
     virtual ~HMI() = delete;
@@ -41,6 +55,7 @@ private:
         FileName,       //!<< File name changed
         FileImageName,  //!<< File image name read
         Error,          //!<< Error occured
+        Fatal,          //!<< Fatal error 
     };
 
     /**
@@ -57,12 +72,17 @@ private:
         NoDisplay,
         DisplayFileName,
         DisplayFileImageName,
+        DisplayError,
+        DisplayFatal,
     };
 
     static constexpr int ALTERNATE_RATE = 5000;
+    static constexpr int ERROR_DISP_TIME = 20000;
 
     static char* fileName_;
     static char* fileImageName_;
+    static char* errMsg_;
+    static char* fatalMsg_;
     static SecondLineState secLineState_;
     static absolute_time_t secLineTimeout_;
     static queue_t msgQueue_;
