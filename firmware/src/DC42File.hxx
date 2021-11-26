@@ -102,7 +102,10 @@ public:
      **/
     inline InternalError getInternalError() { return internalError_;}
 
-    static FATFS fatFs_;                            //!< FatFs work area
+    /**
+     * Mount FATFS area
+     **/
+    static void mountFatFs();
 
     static constexpr uint16_t BYTES_PER_BLOCK = 512;            //!< Assume 512 bytes per block
     static constexpr uint16_t BYTES_PER_TAG = 20;               //!< Assume 20 bytes per tag
@@ -129,7 +132,6 @@ private:
         return true;
     };
 
-    static bool initialized_;                                   //!< To know if FatFs was initialized
     //DC42 offsets
     static constexpr uint8_t IMG_NAME_LEN = 0x0;                //!< Length of image name string
     static constexpr uint8_t IMG_NAME = 0x1;                    //!< Image name
@@ -143,8 +145,11 @@ private:
     static constexpr uint8_t IMAGE_DATA = 0x54;                 //!< Image data
     static constexpr uint16_t MAGIC_NUMBER_VAL = 0x0100;        //!< Magic number
     
+    static bool fatFsInit_;                                     //!< To know if FatFs was initialized
+    static FATFS fatFs_;                    //!< FatFs work area
+
+    bool fileOpen_;                         //!< File open 
     FRESULT fatFsResult_;                   //!< Result of FatFs calls
-    
     InternalError internalError_;           //!< Internal error 
     uint32_t tagOffset_;                    //!< Tag offset in the file
     uint32_t blockCount_;                   //!< Number of block in the file

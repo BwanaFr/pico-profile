@@ -30,10 +30,11 @@ if(block>=blockCount_) { \
     return false; \
 }
 
-bool DC42File::initialized_ = false;
+bool DC42File::fatFsInit_ = false;
 FATFS DC42File::fatFs_;
 
 DC42File::DC42File() :
+        fileOpen_(false),
         fatFsResult_(FR_OK), internalError_(NOT_INITIALIZED),
         tagOffset_(0), blockCount_(0) {
 }
@@ -42,15 +43,19 @@ DC42File::~DC42File() {
     closeFile();
 }
 
-bool DC42File::open(const char* file) {
-    if(!initialized_) {
-        //CALL_CHECK(sd_init_driver());
-        initialized_ = true;
+void DC42File::mountFatFs()
+{
+    if(!fatFsInit_) {
+        fatFsInit_ = true;
         //Initialize the FatFs work area
         f_mount(&fatFs_, "", 1);
-    }else{
-        closeFile();
     }
+}
+
+bool DC42File::open(const char* file) {
+    
+    closeFile();
+    
     //File is not yet initialized.
     if(internalError_ == NOT_INITIALIZED) {
         fatFsResult_ = f_open(&file_, file, FA_READ | FA_WRITE);
@@ -58,6 +63,7 @@ bool DC42File::open(const char* file) {
             internalError_ = FILE_OPEN_ERROR;
             return false;
         }
+        fileOpen_ = true;
         //Open ok. Get Magic number
         uint16_t magic = 0;        
         if(!read(MAGIC_NUMBER, &magic)){
@@ -86,10 +92,11 @@ bool DC42File::open(const char* file) {
 
 void DC42File::closeFile()
 {
-    if(initialized_ && (internalError_ != FILE_OPEN_ERROR)
+    if(fileOpen_ && (internalError_ != FILE_OPEN_ERROR)
         && (internalError_ != NOT_INITIALIZED)){
         f_close(&file_);
         internalError_ = NOT_INITIALIZED;
+        fileOpen_ = false;
     }
 }
 

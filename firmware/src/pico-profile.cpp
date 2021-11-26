@@ -6,6 +6,7 @@
 #include "DC42File.hxx"
 #include "display/hmi.hxx"
 #include "pico/multicore.h"
+#include "configFile.hxx"
 
 /**
  * Use the core 1 for display and HMI
@@ -24,9 +25,12 @@ static Protocol proto(&file);
 int main() {
     stdio_init_all();
     initializeGPIO();
+    sleep_ms(5000);
+    printf("Loading configuration file\n");
+    ConfigFile::loadFile();
     //Starts display on second core
     multicore_launch_core1(core1_entry);
-    printf("\nPico-profile\n");
+    printf("\n----------------\nPico-profile\n");
     if(!file.open("lisaem-profile.dc42")){
         printf("Unable to open file : %s\n", file.getLastError());
     }

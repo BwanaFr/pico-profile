@@ -17,6 +17,8 @@ add_executable(pico-profile
     src/pico-profile.cpp 
     src/io_functions.hxx
     src/io_functions.cpp
+    src/configFile.hxx
+    src/configFile.cpp
     src/DC42File.hxx
     src/DC42File.cpp
     src/profileCommand.hxx
