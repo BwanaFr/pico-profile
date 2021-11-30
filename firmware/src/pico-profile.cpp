@@ -27,7 +27,10 @@ int main() {
     initializeGPIO();
     sleep_ms(5000);
     printf("Loading configuration file\n");
+    absolute_time_t start = get_absolute_time();
     ConfigFile::loadFile();
+    int diff = absolute_time_diff_us(start, get_absolute_time());
+    printf("Time to read configuration file : %dus\n", diff);
     //Starts display on second core
     multicore_launch_core1(core1_entry);
     printf("\n----------------\nPico-profile\n");
