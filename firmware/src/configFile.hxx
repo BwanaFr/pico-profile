@@ -1,14 +1,76 @@
 #include <cstdio>
 #include "ff.h"
 
+class AbstractConfigEntry {
+public:
+    AbstractConfigEntry(const char* section, const char* key, AbstractConfigEntry* prev = nullptr);
+    virtual ~AbstractConfigEntry() = default;
+    bool setValue(const char* section, const char* key, const char* value);
+    inline AbstractConfigEntry* getNext(){ return next_; }
+private:
+    virtual bool setValue(const char* value);    
+    const char* section_;
+    const char* key_;
+    bool set_;
+    AbstractConfigEntry* next_;
+};
+
+template<typename T>
+class ConfigEntry : public AbstractConfigEntry {
+public:
+    ConfigEntry(const char* section, const char* key, T const &defaultValue, AbstractConfigEntry* prev = nullptr);
+
+    virtual ~ConfigEntry() = default;
+
+    const T getValue() const;
+
+private:
+    bool setValue(const char* value);
+
+    T value_;   
+};
+
+template<typename T>
+const T ConfigEntry<T>::getValue() const {
+    return value_;
+}
+
+template<typename T>
+ConfigEntry<T>::ConfigEntry(const char* section, const char* key, T const &defaultValue, AbstractConfigEntry* prev) :
+    AbstractConfigEntry(section, key, prev), value_(defaultValue)
+{
+}
+
+//Specialized templates
+template<> bool ConfigEntry<bool>::setValue(const char* value);
+template<> bool ConfigEntry<int>::setValue(const char* value);
+
+//Specialized class for string
+template<>
+class ConfigEntry<char*> : public AbstractConfigEntry {
+public:
+    ConfigEntry(const char* section, const char* key, const char* defaultValue, AbstractConfigEntry* prev = nullptr);
+
+    virtual ~ConfigEntry();
+
+    const char* getValue() const;
+
+private:
+    bool setValue(const char* value);
+
+    char* value_;
+    const char* defaultValue_;
+};
+
+
 class ConfigFile {
 
 public:
     static bool loadFile();
-    static inline const char* getImageFileName() { return imageFileName_; }
-    static inline bool displayFileName() { return displayFileInfo_; }
-    static inline bool displayImageInfo() { return displayImageInfo_; }
-    static inline int displayStandby() { return displayStandby_; }
+    static const char* getImageFileName();
+    static bool displayFileName();
+    static bool displayImageInfo();
+    static int displayStandby();
 private:
     enum LineType {
         END_FILE,
@@ -60,8 +122,8 @@ private:
     static constexpr char DISK_IMG_SECTION[] = "Image";             //!< Disk image section
     static constexpr char DISK_IMG_NAME[] = "fileName";             //!< Disk image file name parameter key
 
-    static char imageFileName_[256];    //!< Name of the hdd image
-    static bool displayFileInfo_;       //!< Displays file information on screen
-    static bool displayImageInfo_;      //!< Displays image information on screen
-    static int displayStandby_;         //!< Display standby timeout
+    static ConfigEntry<char*> imageFileName_;       //!< Image file name
+    static ConfigEntry<bool> displayFileInfo_;      //!< Displays file information on screen
+    static ConfigEntry<bool> displayImageInfo_;     //!< Displays image information on screen
+    static ConfigEntry<int> displayStandby_;        //!< Display standby timeout
 };
