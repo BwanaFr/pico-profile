@@ -1,9 +1,13 @@
 #include "hmi.hxx"
-#include "display.hxx"
-#include "../protocol.hxx"
 #include <cstdio>
 #include <cstring>
 #include <pico/multicore.h>
+#include <string>
+
+#include "display.hxx"
+#include "../protocol.hxx"
+#include "../version.hxx"
+#include "../configFile.hxx"
 
 char* HMI::fileName_ = nullptr;
 char* HMI::fileImageName_ = nullptr;
@@ -11,6 +15,8 @@ char* HMI::errMsg_ = nullptr;
 char* HMI::fatalMsg_ = nullptr;
 HMI::SecondLineState HMI::secLineState_ = SecondLineState::NoDisplay;
 absolute_time_t HMI::secLineTimeout_ = 0;
+absolute_time_t HMI::displaySaverTimeout_ = 0;
+absolute_time_t HMI::displayAutoOffTimeout_ = 0;
 queue_t HMI::msgQueue_;
 
 void HMI::initialize()
@@ -18,13 +24,23 @@ void HMI::initialize()
     queue_init(&msgQueue_, sizeof(Message), 5);
     sleep_ms(1800); //Wait for the display to be ready
     Display::initialize();
+    std::string verString = "Pico-profile ";
+    verString += getGitVersion();
+    Display::setText(verString.c_str(), 0, false);
     Display::showLogo();
+    displaySaverTimeout_ = make_timeout_time_ms(ConfigFile::getDisplayStandby());
+    displayAutoOffTimeout_ = make_timeout_time_ms(ConfigFile::getDisplayAutoOff());
 }
 
 void HMI::handleHMI()
 {
     Message msg;
+    bool forceRefresh = false;
     if(queue_try_remove(&msgQueue_, &msg)){
+        displaySaverTimeout_ = make_timeout_time_ms(ConfigFile::getDisplayStandby());
+        displayAutoOffTimeout_ = make_timeout_time_ms(ConfigFile::getDisplayAutoOff());
+        Display::setDisplayOn(true);
+        Display::setDisplayContrast(0xFF);
         switch(msg.type){
         case MsgType::ProfileCommand:
         {
@@ -85,6 +101,7 @@ void HMI::handleHMI()
             strcpy(fatalMsg_, errTxt);
             secLineState_ = SecondLineState::DisplayFatal;
             delete[] errTxt;
+            forceRefresh = true;
             break;
         }
         default:
@@ -92,48 +109,68 @@ void HMI::handleHMI()
             break;
         }
     }
+    //Shutdown screen if timeout occured
+    if((absolute_time_diff_us(displaySaverTimeout_, get_absolute_time()) > 0) && ConfigFile::getDisplayStandby() > 0)
+    {
+        Display::setDisplayContrast(0);
+    }
+    if((absolute_time_diff_us(displayAutoOffTimeout_, get_absolute_time()) > 0) && ConfigFile::getDisplayAutoOff() > 0)
+    {
+        Display::setDisplayOn(false);
+    }
+    //Animate display (scrolling + alternate lines)
     bool line1Scrolled = false;
     bool line2Scrolled = false;
     Display::animateDisplay(line1Scrolled, line2Scrolled);
-    if(line2Scrolled && (absolute_time_diff_us(secLineTimeout_, get_absolute_time()) > 0)){
+    if((line2Scrolled && (absolute_time_diff_us(secLineTimeout_, get_absolute_time()) > 0)) || 
+        forceRefresh
+    ){
         switch(secLineState_){
             case SecondLineState::NoDisplay:
             case SecondLineState::DisplayFileName:
                 secLineState_ = SecondLineState::DisplayFileImageName;
-                if(fileName_ ){
-                    char str[strlen(fileName_) + 13];
-                    sprintf(str, "File name : %s", fileName_);
-                    Display::setText(str, 1);
+                if(ConfigFile::isDisplayFileName())
+                {
+                    if(fileName_ ){
+                        char str[strlen(fileName_) + 13];
+                        sprintf(str, "File name : %s", fileName_);
+                        Display::setText(str, 1);
+                    }
+                    //Show this information during 2 seconds
+                    secLineTimeout_ = make_timeout_time_ms(2000);
+                    break;
                 }
-                //Show this information during 2 seconds
-                secLineTimeout_ = make_timeout_time_ms(2000);
-                break;
+            // fall through
             case SecondLineState::DisplayFileImageName:
                 secLineState_ = SecondLineState::DisplayFileName;
-                if(fileImageName_ ){
-                    char str[strlen(fileImageName_) + 14];
-                    sprintf(str, "Disk image : %s", fileImageName_);
-                    Display::setText(str, 1);
+                if(ConfigFile::isDisplayImageInfo())
+                {
+                    if(fileImageName_ ){
+                        char str[strlen(fileImageName_) + 14];
+                        sprintf(str, "Disk image : %s", fileImageName_);
+                        Display::setText(str, 1);
+                    }
+                    secLineTimeout_ = make_timeout_time_ms(2000);
                 }
-                secLineTimeout_ = make_timeout_time_ms(2000);
                 break;
             case SecondLineState::DisplayError:
                 secLineState_ = SecondLineState::DisplayFileName;
                 if(errMsg_ ){
                     char str[strlen(errMsg_) + 9];
                     sprintf(str, "Error : %s", errMsg_);
-                    for(int i=0;i<8;++i){
+                    for(int i=0;i<7;++i){
                         str[i] |= 0x80; //Make Error: reverse
                     }
                     Display::setText(str, 1);
                 }
                 secLineTimeout_ = make_timeout_time_ms(5000);
                 break;
-            case SecondLineState::DisplayFatal:        
+            case SecondLineState::DisplayFatal:
+                //Fatal will stay displayed all the time   
                 if(fatalMsg_ ){
                     char str[strlen(fatalMsg_) + 9];
                     sprintf(str, "Fatal : %s", fatalMsg_);
-                    for(int i=0;i<8;++i){
+                    for(int i=0;i<7;++i){
                         str[i] |= 0x80; //Make Fatal : reverse
                     }
                     Display::setText(str, 1);

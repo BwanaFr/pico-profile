@@ -20,8 +20,9 @@ public:
      * Sets text to be displayed
      * @param txt String to be displayed
      * @param line Line to write text to (default 0, first line)
+     * @param renderNow Immediate rendering of the string line
      **/
-    static void setText(const char* txt, uint line = 0);
+    static void setText(const char* txt, uint line = 0, bool renderNow = true);
 
     /**
      * Sets text to be displayed
@@ -43,7 +44,18 @@ public:
      **/
     static void animateDisplay(bool& line1Scrolled, bool& line2Scrolled);
 
-    static void busScan();
+    /**
+     * Sets display ON/OFF
+     * @param on True if the display must be switch on
+     **/
+    static void setDisplayOn(bool on = true);
+
+    /**
+     * Sets display contrast
+     * @param contrast Display contrast value
+     **/
+    static void setDisplayContrast(uint8_t contrast);
+
 #ifdef WITH_DMA
     static void dmaDone();
 #endif
@@ -109,11 +121,13 @@ private:
         int scroll;         //!< Scroll amount (0 -> len)
         int scrollWait;     //!< Scroll wait state
         bool dir;           //!< Scroll direction 
-        inline LineData() : text(nullptr), len(0), scroll(SCROLL_WAIT), dir(true), scrollWait(0){}
+        inline LineData() : text(nullptr), len(0), scroll(SCROLL_WAIT), scrollWait(0), dir(true){}
     }LineData;
 
     static LineData lines_[2];                         //!< Text lines
     static bool textMode_;                             //!< Text mode (to prevent scrolling)
+    static bool displayOn_;                            //!< Flag to know if display is on
+    static uint8_t contrast_;                          //!< Display contrast
     static absolute_time_t nextScroll_;                //!< Next scrolling time
 
     /**

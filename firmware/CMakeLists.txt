@@ -17,6 +17,8 @@ add_executable(pico-profile
     src/pico-profile.cpp 
     src/io_functions.hxx
     src/io_functions.cpp
+    src/configFile.hxx
+    src/configFile.cpp
     src/DC42File.hxx
     src/DC42File.cpp
     src/profileCommand.hxx
@@ -29,8 +31,15 @@ add_executable(pico-profile
     src/display/font_6x13.hxx
     src/display/hmi.hxx
     src/display/hmi.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
 )
 
+ADD_CUSTOM_COMMAND(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
+           ${CMAKE_CURRENT_BINARY_DIR}/_version.cpp
+    COMMAND ${CMAKE_COMMAND} -P
+            ${CMAKE_CURRENT_SOURCE_DIR}/version.cmake)
+message(STATUS "CMAKE_CURRENT_BINARY_DIR = ${CMAKE_CURRENT_BINARY_DIR}")
 # Generate pio header
 pico_generate_pio_header(pico-profile ${CMAKE_CURRENT_LIST_DIR}/src/pico-profile.pio)
 
