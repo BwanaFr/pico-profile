@@ -3,10 +3,13 @@
 #include <cstring>
 #include <cstdlib>
 
-ConfigEntry<char*> ConfigFile::imageFileName_(DISK_IMG_SECTION, DISK_IMG_NAME, "lisaem-profile.dc42");
+//Init configuration parameters. Order of parent is important
+//Because the saveFile() method writes values without checking if section already exists
+ConfigEntry<std::string> ConfigFile::imageFileName_(DISK_IMG_SECTION, DISK_IMG_NAME, "lisaem-profile.dc42");
 ConfigEntry<bool> ConfigFile::displayFileInfo_(DISPLAY_SECTION, DISPLAY_FILE_INFO, true, &imageFileName_);
 ConfigEntry<bool> ConfigFile::displayImageInfo_(DISPLAY_SECTION, DISPLAY_IMAGE_INFO, true, &displayFileInfo_);
-ConfigEntry<int> ConfigFile::displayStandby_(DISPLAY_SECTION, DISPLAY_STANDBY, 5000, &displayImageInfo_);
+ConfigEntry<int> ConfigFile::displayStandby_(DISPLAY_SECTION, DISPLAY_STANDBY, 10, &displayImageInfo_);
+ConfigEntry<int> ConfigFile::displayAutoOff_(DISPLAY_SECTION, DISPLAY_AUTOOFF, -1, &displayStandby_);
 
 bool ConfigFile::loadFile()
 {
@@ -16,28 +19,26 @@ bool ConfigFile::loadFile()
     if(res != FR_OK){
         return false;
     }
-    char* section = nullptr;    
+    std::string section;
     while(true){
-        LineValue line = getNextLine(&file);
+        LineValue line;
+        getNextLine(&file, line);
         switch(line.type){
             case LineType::COMMENT:
                 //Ignore comments
-                free(line.value);
                 break;
             case LineType::SECTION:
-                free(section);
                 section = line.key;
                 break;
             case LineType::VALUE:
-                if(section != nullptr){
+                if(!section.empty()){
                     AbstractConfigEntry* entry = &imageFileName_;
                     while(entry != nullptr){
                         entry->setValue(section, line.key, line.value);
                         entry = entry->getNext();
                     }
                 }
-                free(line.key);
-                free(line.value);
+                break;
             default:
                 break;
         }
@@ -45,142 +46,153 @@ bool ConfigFile::loadFile()
             break;
         }
     }
-    free(section);
+    
     f_close(&file);
-    printf("Disk image name : %s\n", imageFileName_.getValue());
-    printf("Display file info : %s\n", (displayFileInfo_.getValue() ? "YES" : "NO"));
-    printf("Display image info : %s\n", (displayImageInfo_.getValue() ? "YES" : "NO"));
-    printf("Display standby timeout : %d\n", displayStandby_.getValue());
+    dumpConfiguration();
     return true;
+}
+
+bool ConfigFile::saveFile()
+{
+    FIL file;
+    FRESULT res = f_open(&file, CONFIG_FILE_NAME, FA_CREATE_ALWAYS | FA_WRITE);
+    if(res != FR_OK){
+        return false;
+    }
+    AbstractConfigEntry* entry = &imageFileName_;
+    std::string section;
+    while(entry != nullptr){
+        UINT wrote;
+        if(entry->isSet()){
+            //Only write values different from defaults
+            if(!strCompare(section, entry->getSection())){
+                section = entry->getSection();
+                //New section
+                const char b = '[';
+                f_write(&file, &b, sizeof(char), &wrote);
+                f_write(&file, section.c_str(), section.length(), &wrote);
+                const char* end = "]\n";
+                f_write(&file, end, strlen(end), &wrote);
+            }
+            std::string key = entry->getKey();
+            f_write(&file, key.c_str(), key.length(), &wrote);
+            const char e = '=';
+            f_write(&file, &e, sizeof(char), &wrote);
+            std::string valStr = entry->getValueAsString();
+            f_write(&file, &valStr[0], valStr.size(), &wrote);
+            const char cr = '\n';
+            f_write(&file, &cr, sizeof(char), &wrote);
+        }
+        entry = entry->getNext();
+    }
+    f_close(&file);
+    return true;
+}
+
+void ConfigFile::dumpConfiguration()
+{
+    printf("===============================\n");
+    printf("Configuration file : \n");
+    AbstractConfigEntry* entry = &imageFileName_;
+    while(entry != nullptr){
+        printf("%s -> %s=%s\n", entry->getSection(), entry->getKey(),
+                    entry->getValueAsString().c_str());
+        entry = entry->getNext();
+    }
+    printf("===============================\n");
 }
 
 const char* ConfigFile::getImageFileName()
 {
-    return imageFileName_.getValue();
+    return imageFileName_.getValue().c_str();
 }
 
-bool ConfigFile::displayFileName()
+bool ConfigFile::isDisplayFileName()
 {
     return displayFileInfo_.getValue();
 }
 
-bool ConfigFile::displayImageInfo()
+bool ConfigFile::isDisplayImageInfo()
 {
     return displayImageInfo_.getValue();
 }
 
-int ConfigFile::displayStandby()
+int ConfigFile::getDisplayStandby()
 {
-    return displayStandby_.getValue();
+    return displayStandby_.getValue() * 1000;   //Configuration file stores it in seconds
 }
 
-char* ConfigFile::readLine(FIL* file)
+int ConfigFile::getDisplayAutoOff()
+{
+    int ret = displayAutoOff_.getValue();
+    if(ret == -1){
+        //If auto-off is not set do twice of the dim time
+        ret = displayStandby_.getValue() * 2;
+        displayAutoOff_.setValue(ret);
+    }
+    return ret * 1000;   //Configuration file stores it in seconds
+}
+
+bool ConfigFile::readLine(FIL* file, std::string& line)
 {
     char c;
     UINT read = 0;
-    FSIZE_t start = f_tell(file);
-    FSIZE_t end = 0;
+
+    if(f_eof(file)){
+        return false;
+    }
     while(!f_eof(file)){
         if(f_read(file, &c, 1, &read) != FR_OK){
-            return nullptr;
+            return false;
         }
         if((c == '\n') || (c == '\r')){
             break;
         }
+        line += c;
     }
-    end = f_tell(file);
-    if(end == start){
-        return nullptr;
-    }
-    int len = end - start - 1;
-    char* ret = (char*)calloc(len+1, sizeof(char));
-    f_lseek(file, start);
-    if(f_read(file, ret, len, &read) != FR_OK){
-        free(ret);
-        return nullptr;
-    }
-    f_lseek(file, end);
-    trim(ret);
-    return ret;
+    line = trim(line);
+    return true;
+}
+std::string& ConfigFile::trim(std::string& str)
+{
+    const char* ws = " \t\n\r\f\v";
+    str.erase(str.find_last_not_of(ws) + 1);
+    str.erase(0, str.find_first_not_of(ws));
+    return str;
 }
 
-void ConfigFile::trim(char* str)
+void ConfigFile::getNextLine(FIL* file, LineValue& lineValue)
 {
-    int len = strlen(str);
-    int realStart = 0;
-    int realStop = 0;
-    for(int i=0;i<len;++i){
-        if((str[i]<=' ') || (str[i]>'~')){
-            realStart++;
-        }else{
-            break;
-        }
-    }
-    for(int i=(len-1);i>=0;--i){
-        if((str[i]<=' ') || (str[i]>'~')){
-            ++realStop;
-        }else{
-            break;
-        }
-    }
-    for(int i=realStart;i<len;++i){
-        str[i-realStart] = str[i];
-    }
-    int toCut = len-realStart-realStop;
-    memset(&str[toCut], 0x0, len-toCut);
-}
-
-ConfigFile::LineValue ConfigFile::getNextLine(FIL* file)
-{
-    LineValue ret;
-    char* line = readLine(file);
-    if(line != nullptr){
-        int len = strlen(line);
+    std::string line; 
+    lineValue.type = LineType::END_FILE;
+    if(readLine(file, line)){
         if(line[0] == '['){
             //Maybe a section
-            int endSec = -1;
-            for(int i=1; i<len; ++i){
-                if(line[i] == ']'){
-                    endSec = i;
-                    break;
-                }
-            }
-            if(endSec>0){
+            std::string::size_type endSec = line.find_last_of(']');
+            
+            if(endSec != std::string::npos){
                 //Found end of section
-                ret.type = LineType::SECTION;
-                ret.key = (char*)calloc(endSec, sizeof(char));
-                memcpy(ret.key, &line[1], endSec-1);
-                free(line);
-                trim(ret.key);
-                line = nullptr;
+                lineValue.type = LineType::SECTION;
+                lineValue.key = line.substr(1, endSec-1);
             }
         }else if(line[0] != '#'){
-            int sepLoc = -1;
-            for(int i=0;i<len;++i){
-                if(line[i] == '='){
-                    sepLoc = i;
-                    break;
-                }
-            }
-            if(sepLoc>0){
-                ret.key = (char*)calloc(sepLoc, sizeof(char));
-                ret.value = (char*)calloc(len+1-sepLoc, sizeof(char));
-                memcpy(ret.key, line, sepLoc);
-                memcpy(ret.value, &line[sepLoc+1], len-sepLoc);
-                free(line);
-                trim(ret.key);
-                trim(ret.value);
-                ret.type = LineType::VALUE;
-                line = nullptr;
+            std::string::size_type sepLoc = line.find_first_of('=');
+            
+            if(sepLoc != std::string::npos){
+                lineValue.key = line.substr(0, sepLoc);
+                lineValue.value = line.substr(sepLoc+1);
+                
+                trim(lineValue.key);
+                trim(lineValue.value);
+                lineValue.type = LineType::VALUE;
             }
         }
-        if(line != nullptr){
+        if(lineValue.type == LineType::END_FILE){
             //Default to comment
-            ret.value = line;
-            ret.type = LineType::COMMENT;
+            lineValue.value = line;
+            lineValue.type = LineType::COMMENT;
         }
     }
-    return ret;
 }
 
 AbstractConfigEntry::AbstractConfigEntry(const char* section, const char* key, AbstractConfigEntry* prev) :
@@ -191,13 +203,17 @@ AbstractConfigEntry::AbstractConfigEntry(const char* section, const char* key, A
     }
 }
 
-bool AbstractConfigEntry::setValue(const char* section, const char* key, const char* value)
+AbstractConfigEntry::~AbstractConfigEntry()
+{
+}
+
+bool AbstractConfigEntry::setValue(const std::string& section, const std::string& key, const std::string& value)
 {
     if(!set_){
-        if((strcasecmp(section, section_) == 0) && 
-            (strcasecmp(key, key_) == 0))
+        if(ConfigFile::strCompare(section, section_) && 
+            ConfigFile::strCompare(key.c_str(), key_))
         {
-            set_ = setValue(value);
+            set_ = setStringValue(value);
             return set_;
         }
     }
@@ -205,11 +221,11 @@ bool AbstractConfigEntry::setValue(const char* section, const char* key, const c
 }
 
 template<>
-bool ConfigEntry<bool>::setValue(const char* value)
+bool ConfigEntry<bool>::setStringValue(const std::string& value)
 {
-    if((strcasecmp(value, "true") == 0) || 
-        (strcasecmp(value, "yes") == 0) ||
-        (strcasecmp(value, "y") == 0))
+    if((strcasecmp(value.c_str(), "true") == 0) || 
+        (strcasecmp(value.c_str(), "yes") == 0) ||
+        (strcasecmp(value.c_str(), "y") == 0))
     {
         value_ = true;
     }else{
@@ -219,11 +235,12 @@ bool ConfigEntry<bool>::setValue(const char* value)
 }
 
 template<>
-bool ConfigEntry<int>::setValue(const char* value)
+bool ConfigEntry<int>::setStringValue(const std::string& value)
 {
     char * endPtr;
-    int newVal = strtoll(value, &endPtr, 10);
-    if(endPtr == value){
+    const char* start = value.c_str();
+    int newVal = strtoll(start, &endPtr, 10);
+    if(endPtr == start){
         //Parse failed
         return false;
     }
@@ -231,33 +248,18 @@ bool ConfigEntry<int>::setValue(const char* value)
     return true;
 }
 
-
-bool ConfigEntry<char*>::setValue(const char* value)
+template<>
+std::string ConfigEntry<bool>::getValueAsString() const
 {
-    free(value_);
-    size_t len = strlen(value) + 1;
-    value_ = (char*)calloc(len, sizeof(char));
-    strcpy(value_, value);
-    return true;
-}
-
-
-ConfigEntry<char*>::ConfigEntry(const char* section, const char* key, const char* defaultValue, AbstractConfigEntry* prev) :
-    AbstractConfigEntry(section, key, prev), value_(nullptr), defaultValue_(defaultValue)
-{    
-}
-
-const char* ConfigEntry<char*>::getValue() const
-{
+    std::string ret = "false";
     if(value_){
-        return value_;
+        ret = "true";
     }
-    return defaultValue_;
+    return ret;
 }
 
-ConfigEntry<char*>::~ConfigEntry()
+template<>
+std::string ConfigEntry<std::string>::getValueAsString() const
 {
-    if(value_) {
-        free(value_);
-    }
+    return value_;
 }

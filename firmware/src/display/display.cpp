@@ -24,6 +24,8 @@ int Display::dmaChan_ = -1;
 #endif
 Display::LineData Display::lines_[2];
 bool Display::textMode_ = false;
+bool Display::displayOn_ = false;
+uint8_t Display::contrast_ = 0;
 absolute_time_t Display::nextScroll_;
 
 void Display::configureI2C()
@@ -113,7 +115,7 @@ void Display::initialize()
 {
     configureI2C();
 
-    sendCmd(OLED_SET_DISP | 0x00); // set display off
+    setDisplayOn(false);    // set display off
 
     /* memory mapping */
     sendCmd(OLED_SET_MEM_ADDR); // set memory address mode
@@ -148,8 +150,7 @@ void Display::initialize()
     sendCmd(0x30); // 0.83xVcc
 
     /* display */
-    sendCmd(OLED_SET_CONTRAST); // set contrast control
-    sendCmd(0xFF);
+    setDisplayContrast(0xFF);   //Set contrast to maximum
 
     sendCmd(OLED_SET_ENTIRE_ON); // set entire display on to follow RAM content
 
@@ -161,7 +162,7 @@ void Display::initialize()
     sendCmd(OLED_SET_SCROLL | 0x00); // deactivate horizontal scrolling if set
     // this is necessary as memory writes will corrupt if scrolling was enabled
 
-    sendCmd(OLED_SET_DISP | 0x01); // turn display on
+    setDisplayOn();     // turn display on
 
     nextScroll_ = make_timeout_time_ms(SCROLL_SPEED);
 }
@@ -256,7 +257,7 @@ void Display::showLogo()
     render(lisa_logo);
 }
 
-void Display::setText(const char* txt, uint line)
+void Display::setText(const char* txt, uint line, bool renderNow)
 {
     if(line > 1)
         return;
@@ -270,7 +271,8 @@ void Display::setText(const char* txt, uint line)
     lines_[line].len = newLen;
     lines_[line].scroll = 0;
     lines_[line].dir = true;
-    renderText();
+    if(renderNow)
+        renderText();
 }
 
 void Display::setText(const char* line1, const char* line2)
@@ -331,4 +333,21 @@ void Display::renderText()
         }
     }
     render(buf);
+}
+
+void Display::setDisplayOn(bool on)
+{
+    if(displayOn_ != on){
+        sendCmd(OLED_SET_DISP | (on ? 0x1 : 0x0));
+        displayOn_ = on;
+    }
+}
+
+void Display::setDisplayContrast(uint8_t contrast)
+{
+    if(contrast_ != contrast){
+        sendCmd(OLED_SET_CONTRAST);
+        sendCmd(contrast);
+        contrast_ = contrast;
+    }
 }

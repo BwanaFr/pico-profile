@@ -85,6 +85,8 @@ private:
     static char* fatalMsg_;
     static SecondLineState secLineState_;
     static absolute_time_t secLineTimeout_;
+    static absolute_time_t displaySaverTimeout_;
+    static absolute_time_t displayAutoOffTimeout_;
     static queue_t msgQueue_;
 
 };

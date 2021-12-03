@@ -25,18 +25,24 @@ static Protocol proto(&file);
 int main() {
     stdio_init_all();
     initializeGPIO();
+    //Load configuration file (or fallback to default value)
     sleep_ms(5000);
-    printf("Loading configuration file\n");
-    absolute_time_t start = get_absolute_time();
     ConfigFile::loadFile();
-    int diff = absolute_time_diff_us(start, get_absolute_time());
-    printf("Time to read configuration file : %dus\n", diff);
     //Starts display on second core
     multicore_launch_core1(core1_entry);
-    printf("\n----------------\nPico-profile\n");
-    if(!file.open("lisaem-profile.dc42")){
-        printf("Unable to open file : %s\n", file.getLastError());
+    printf("Pico-profile\n");
+    if(!file.open(ConfigFile::getImageFileName())){
+        std::string str = "Unable to open file ";
+        str += ConfigFile::getImageFileName();
+        str += " : ";
+        str += file.getLastError();
+        printf("%s\n", str.c_str());
+        HMI::setFatalMsg(str.c_str());
+        while (true) {
+            tight_loop_contents();
+        }
     }
+    //Initialize protocol handling
     proto.initialize();
     while (true) {
         proto.handleProtocol();
