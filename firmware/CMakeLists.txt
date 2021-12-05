@@ -63,3 +63,13 @@ target_link_libraries(pico-profile
 
 pico_add_extra_outputs(pico-profile)
 
+add_custom_target(dist 
+    COMMAND
+    ${CMAKE_COMMAND} -E tar "cfv" "${CMAKE_CURRENT_BINARY_DIR}/release.zip" --format=zip
+       "${CMAKE_CURRENT_BINARY_DIR}/pico-profile.uf2"
+       "${CMAKE_CURRENT_BINARY_DIR}/pico-profile.hex"
+       "${CMAKE_CURRENT_BINARY_DIR}/pico-profile.bin"
+       "${CMAKE_CURRENT_SOURCE_DIR}/pp_config.ini"
+       "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+)
