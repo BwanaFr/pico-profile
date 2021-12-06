@@ -47,7 +47,7 @@ jobs:
         tag_name: ${{ github.ref }}
         release_name: Release ${{ github.ref }}
         body: |
-          See README.md file in release notes
+          See README.md file to get release notes
         draft: false
         prerelease: false
   

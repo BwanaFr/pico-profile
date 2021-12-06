@@ -7,6 +7,8 @@
 #include "hardware/irq.h"
 
 #include "lisa_logo.h"
+#include "../version.hxx"
+#include "font_5x8.hxx"
 
 #define OLED_I2C i2c1
 
@@ -254,7 +256,29 @@ void Display::animateDisplay(bool& line1Scrolled, bool& line2Scrolled)
 void Display::showLogo()
 {
     textMode_ = false;
-    render(lisa_logo);
+    const int logoLen = IMG_WIDTH*(IMG_HEIGHT/8);
+    uint8_t* logo = new uint8_t[logoLen];
+    memcpy(logo, lisa_logo, logoLen);
+    const char* version = getGitVersion();
+    size_t verLen = strlen(version);
+    int nbCols = verLen * Font5x8::FONT_WIDTH;
+    uint8_t* start = &logo[logoLen-nbCols-1];
+
+    for(unsigned int i=0;i<verLen;++i){
+        char c = version[i] & 0x7F;
+        if(c > 0x7e){
+            c = '.';
+        }
+        c -= 0x20;  //Font starts with space
+        const uint8_t *p = &Font5x8::data[c * Font5x8::FONT_WIDTH];
+        for(int j=0;j<Font5x8::FONT_WIDTH;++j){
+            *start ^= *p;
+            ++start;
+            ++p;
+        }
+    }
+    render(logo);
+    delete[] logo;
 }
 
 void Display::setText(const char* txt, uint line, bool renderNow)

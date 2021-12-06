@@ -28,7 +28,7 @@ else()
     string(STRIP "${GIT_BRANCH}" GIT_BRANCH)
     set(GIT_VERSION "Git~${GIT_REV}${GIT_DIFF}")
     if (NOT ${GIT_TAG} STREQUAL "")
-        set(GIT_VERSION "v${GIT_TAG}")
+        set(GIT_VERSION "${GIT_TAG}")
     endif()
 endif()
 

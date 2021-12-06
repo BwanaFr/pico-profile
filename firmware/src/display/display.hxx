@@ -5,7 +5,6 @@
 
 #include <pico/stdlib.h>
 #include <pico/time.h>
-#include <pico/time.h>
 #include "font_6x13.hxx"
 
 class Display {
