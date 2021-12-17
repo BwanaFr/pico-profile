@@ -30,7 +30,7 @@ U 1 1 60EC8B5C
 P 5150 1600
 F 0 "U1" H 4900 2300 50  0000 C CNN
 F 1 "74LS280" H 4900 2200 50  0000 C CNN
-F 2 "Package_SO:SO-14_3.9x8.65mm_P1.27mm" H 5150 1600 50  0001 C CNN
+F 2 "Package_SO:SO-16_5.3x10.2mm_P1.27mm" H 5150 1600 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS280" H 5150 1600 50  0001 C CNN
 	1    5150 1600
 	1    0    0    -1  
@@ -1866,4 +1866,6 @@ Wire Bus Line
 	5900 2850 5900 3900
 Wire Bus Line
 	4400 1050 4400 6200
+Text Notes 7500 6450 0    50   ~ 0
+Do not mount this resistor and logic gate!
 $EndSCHEMATC
